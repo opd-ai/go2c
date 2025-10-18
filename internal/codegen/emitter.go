@@ -577,6 +577,8 @@ func (e *Emitter) generateBlockWithPatterns(
 			e.generateIfThen(pattern, blocks, patterns, sb, processed, indent)
 		case "while":
 			e.generateWhile(pattern, blocks, patterns, sb, processed, indent)
+		case "switch":
+			e.generateSwitch(pattern, blocks, patterns, sb, processed, indent)
 		default:
 			// Unknown pattern, generate as basic block
 			e.generateBasicBlock(label, block, sb, indent)
@@ -887,4 +889,111 @@ func (e *Emitter) generateBasicBlock(
 			}
 		}
 	}
+}
+
+// generateSwitch generates a C switch statement
+func (e *Emitter) generateSwitch(
+	pattern *llvm.ControlFlowPattern,
+	blocks map[string]*llvm.BasicBlock,
+	patterns []*llvm.ControlFlowPattern,
+	sb *strings.Builder,
+	processed map[string]bool,
+	indent int,
+) {
+	indentStr := strings.Repeat("    ", indent)
+	
+	// Mark the switch block itself as processed
+	processed[pattern.StartLabel] = true
+	
+	// Get the switch value and sanitize it
+	switchValue := e.typeMapper.SanitizeName(pattern.SwitchValue)
+	
+	// Generate switch statement
+	sb.WriteString(fmt.Sprintf("%sswitch (%s) {\n", indentStr, switchValue))
+	
+	// Generate case statements
+	for _, switchCase := range pattern.SwitchCases {
+		caseBlock := blocks[switchCase.Label]
+		if caseBlock == nil {
+			continue
+		}
+		
+		// Generate case label
+		sb.WriteString(fmt.Sprintf("%scase %s:\n", indentStr, switchCase.Value))
+		
+		// Mark as processed
+		processed[switchCase.Label] = true
+		
+		// Generate case body
+		for _, inst := range caseBlock.Instructions {
+			// Check if this is a return statement - if so, don't add break
+			if strings.HasPrefix(inst, "ret") {
+				cLine := e.convertInstructionToC(inst)
+				if cLine != "" {
+					sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+				}
+				// No break needed after return
+				continue
+			}
+			
+			cLine := e.convertInstructionToC(inst)
+			if cLine != "" {
+				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+			}
+		}
+		
+		// Check if we need a break statement
+		// Only add break if the case doesn't end with return or goto
+		if caseBlock.Terminator != nil {
+			if caseBlock.Terminator.Type == "br_uncon" {
+				// Unconditional branch - could be fallthrough or break
+				// For now, treat as explicit break unless it's to the next case
+				// This is a simplified implementation
+				sb.WriteString(strings.Repeat("    ", indent+1) + "break;\n")
+			}
+			// If terminator is "ret", no break needed (already handled above)
+		} else {
+			// No terminator, add break to be safe
+			sb.WriteString(strings.Repeat("    ", indent+1) + "break;\n")
+		}
+	}
+	
+	// Generate default case
+	if pattern.DefaultLabel != "" {
+		defaultBlock := blocks[pattern.DefaultLabel]
+		if defaultBlock != nil {
+			sb.WriteString(fmt.Sprintf("%sdefault:\n", indentStr))
+			
+			// Mark as processed
+			processed[pattern.DefaultLabel] = true
+			
+			// Generate default body
+			for _, inst := range defaultBlock.Instructions {
+				if strings.HasPrefix(inst, "ret") {
+					cLine := e.convertInstructionToC(inst)
+					if cLine != "" {
+						sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+					}
+					continue
+				}
+				
+				cLine := e.convertInstructionToC(inst)
+				if cLine != "" {
+					sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+				}
+			}
+			
+			// Add break for default if needed
+			if defaultBlock.Terminator != nil {
+				if defaultBlock.Terminator.Type == "br_uncon" {
+					sb.WriteString(strings.Repeat("    ", indent+1) + "break;\n")
+				}
+			} else {
+				sb.WriteString(strings.Repeat("    ", indent+1) + "break;\n")
+			}
+		}
+	}
+	
+	// Close switch statement
+	sb.WriteString(fmt.Sprintf("%s}\n", indentStr))
 }

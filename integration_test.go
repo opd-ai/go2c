@@ -52,6 +52,21 @@ func TestLLVM2CIntegration(t *testing.T) {
 				"return b;",
 			},
 		},
+		{
+			name:      "switch statement",
+			inputFile: "testdata/input/switch.ll",
+			checkStrings: []string{
+				"switch (x)",
+				"case 0:",
+				"case 1:",
+				"case 2:",
+				"default:",
+				"return 10;",
+				"return 20;",
+				"return 30;",
+				"return -1;",
+			},
+		},
 	}
 
 	for _, tt := range tests {
