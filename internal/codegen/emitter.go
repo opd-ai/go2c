@@ -582,9 +582,55 @@ func (e *Emitter) generateBlockWithPatterns(
 			e.generateBasicBlock(label, block, sb, indent)
 		}
 	} else {
-		// No pattern, generate as basic block
-		e.generateBasicBlock(label, block, sb, indent)
+		// No pattern, generate as basic block but check for continuation
+		e.generateBasicBlockAndContinue(label, block, blocks, patterns, sb, processed, indent)
 	}
+}
+
+// generateBasicBlockAndContinue generates a basic block and follows control flow
+func (e *Emitter) generateBasicBlockAndContinue(
+	label string,
+	block *llvm.BasicBlock,
+	blocks map[string]*llvm.BasicBlock,
+	patterns []*llvm.ControlFlowPattern,
+	sb *strings.Builder,
+	processed map[string]bool,
+	indent int,
+) {
+	indentStr := strings.Repeat("    ", indent)
+	
+	// Generate instructions before the terminator
+	for i, inst := range block.Instructions {
+		// Skip the last instruction if it's the terminator
+		if i == len(block.Instructions)-1 && e.isTerminator(inst) {
+			// Check if this is an unconditional branch to next block
+			if block.Terminator != nil && block.Terminator.Type == "br_uncon" {
+				nextLabel := block.Terminator.UnconLabel
+				// Continue with the next block instead of generating goto
+				e.generateBlockWithPatterns(nextLabel, blocks, patterns, sb, processed, indent)
+				return
+			}
+			// Otherwise convert the terminator
+			cLine := e.convertInstructionToC(inst)
+			if cLine != "" {
+				sb.WriteString(indentStr + cLine + "\n")
+			}
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			sb.WriteString(indentStr + cLine + "\n")
+		}
+	}
+}
+
+// isTerminator checks if an instruction is a terminator
+func (e *Emitter) isTerminator(instruction string) bool {
+	instruction = strings.TrimSpace(instruction)
+	return strings.HasPrefix(instruction, "ret") ||
+		strings.HasPrefix(instruction, "br") ||
+		strings.HasPrefix(instruction, "switch") ||
+		strings.HasPrefix(instruction, "unreachable")
 }
 
 // findPatternStartingAt finds a pattern that starts at the given label
@@ -743,29 +789,41 @@ func (e *Emitter) generateWhile(
 	
 	indentStr := strings.Repeat("    ", indent)
 	
+	// Generate instructions in cond block before the branch (to compute condition)
+	for i, inst := range condBlock.Instructions {
+		// Skip the conditional branch at the end
+		if i == len(condBlock.Instructions)-1 && strings.HasPrefix(inst, "br i1") {
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			sb.WriteString(indentStr + cLine + "\n")
+		}
+	}
+	
 	// Generate while loop
 	if condBlock.Terminator != nil && condBlock.Terminator.Condition != "" {
-		// Generate condition evaluation
-		for _, inst := range condBlock.Instructions {
-			cLine := e.convertInstructionToC(inst)
-			if cLine != "" {
-				sb.WriteString(indentStr + cLine + "\n")
-			}
-		}
-		
 		condition := e.typeMapper.SanitizeName(condBlock.Terminator.Condition)
 		sb.WriteString(fmt.Sprintf("%swhile (%s) {\n", indentStr, condition))
 		
-		// Generate loop body
-		for _, inst := range bodyBlock.Instructions {
+		// Generate loop body (excluding the back-edge branch)
+		for i, inst := range bodyBlock.Instructions {
+			// Skip unconditional branch back to condition
+			if i == len(bodyBlock.Instructions)-1 && strings.HasPrefix(inst, "br label") {
+				break
+			}
 			cLine := e.convertInstructionToC(inst)
 			if cLine != "" {
 				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
 			}
 		}
 		
-		// Re-evaluate condition at end of loop
-		for _, inst := range condBlock.Instructions {
+		// Re-evaluate condition at end of loop (for variables modified in body)
+		for i, inst := range condBlock.Instructions {
+			// Skip the conditional branch at the end
+			if i == len(condBlock.Instructions)-1 && strings.HasPrefix(inst, "br i1") {
+				break
+			}
 			cLine := e.convertInstructionToC(inst)
 			if cLine != "" {
 				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
