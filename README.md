@@ -160,11 +160,21 @@ go2c/
 ✓ Basic functions and function calls  
 ✓ Integer types (int, int8, int16, int32, int64)  
 ✓ Floating point types (float32, float64)  
-✓ Boolean types  
+✓ Boolean types and comparisons  
 ✓ Arithmetic operations (+, -, *, /, %)  
+✓ Comparison operations (==, !=, <, >, <=, >=)  
 ✓ Function parameters and return values  
 ✓ Global variables and string constants  
-✓ Basic control flow (return statements, goto/labels)  
+✓ **Control flow patterns** (if/else, while loops) - **NEW!**  
+✓ Structured C code generation (not just goto/labels)  
+
+### Recent Improvements
+
+**Enhanced Control Flow Generation** (Latest):
+- Detects if-else patterns and generates idiomatic `if/else` statements
+- Detects while loop patterns and generates `while` loops
+- Converts LLVM comparison instructions (`icmp`) to C comparison operators
+- Produces more readable and maintainable C code
 
 ### Limitations
 

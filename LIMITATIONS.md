@@ -252,6 +252,38 @@ void slice_append(slice_int* s, int value) {
 
 ## Code Generation Quality
 
+### Label-Based Control Flow
+
+**Issue**: The transpiler now intelligently detects common control flow patterns and generates idiomatic C code.
+
+**Status**: **IMPROVED** - The code generator now recognizes and converts:
+- **If-else patterns**: Conditional branches with both true and false paths
+- **If-then patterns**: Conditional branches with only a true path
+- **While loops**: Loop patterns with condition check and back-edges
+
+**Generated Code Examples**:
+
+```c
+// If-else pattern (LLVM IR with conditional branch)
+if (cmp) {
+    return a;
+} else {
+    return b;
+}
+
+// While loop pattern (LLVM IR loop structure)
+while (cmp) {
+    // loop body
+}
+```
+
+**Remaining Issues**:
+- Complex loop patterns (do-while, for-loops) still use goto/labels
+- Switch statements not yet converted to C switch
+- Nested patterns may fall back to goto in some cases
+
+**Improvement**: Previously all control flow was converted to labels and goto statements, making generated code difficult to read. The enhanced code generator now produces more readable and maintainable C code for common patterns.
+
 ### Unoptimized Output
 
 **Issue**: Generated C code may contain:
@@ -267,9 +299,21 @@ void slice_append(slice_int* s, int value) {
 
 **Issue**: Generated C code lacks explanatory comments.
 
-**Impact**: Hard to understand/debug generated code.
+**Impact**: Can be harder to understand/debug generated code, though improved control flow readability helps.
 
-**Workaround**: Use `-keep-llvm` flag to inspect LLVM IR.
+**Workaround**: Use `-keep-llvm` flag to inspect LLVM IR, or review the structured control flow (if/while) that is now generated.
+
+### Comparison Operations
+
+**Status**: **SUPPORTED** - The transpiler now supports LLVM icmp instructions:
+- `icmp eq` → `==`
+- `icmp ne` → `!=`
+- `icmp sgt/ugt` → `>`
+- `icmp sge/uge` → `>=`
+- `icmp slt/ult` → `<`
+- `icmp sle/ule` → `<=`
+
+Comparison results are converted to C `bool` type.
 
 ### Label-Based Control Flow
 
