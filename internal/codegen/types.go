@@ -126,10 +126,23 @@ func (tm *TypeMapper) SanitizeName(name string) string {
 	name = strings.TrimPrefix(name, "@")
 	// Remove % prefix for locals
 	name = strings.TrimPrefix(name, "%")
+	// Remove quotes
+	name = strings.Trim(name, "\"")
 	// Replace dots with underscores
 	name = strings.ReplaceAll(name, ".", "_")
 	// Replace special characters
 	name = strings.ReplaceAll(name, "-", "_")
 	name = strings.ReplaceAll(name, "$", "_")
+	
+	// If name starts with a digit, prefix with underscore
+	if len(name) > 0 && name[0] >= '0' && name[0] <= '9' {
+		name = "var_" + name
+	}
+	
+	// If name is empty or just whitespace, use a default
+	if strings.TrimSpace(name) == "" {
+		name = "unnamed"
+	}
+	
 	return name
 }

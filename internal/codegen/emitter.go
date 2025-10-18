@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/opd-ai/go2c/internal/llvm"
@@ -150,11 +151,23 @@ func (e *Emitter) convertInstructionToC(instruction string) string {
 		if len(parts) == 1 || parts[1] == "void" {
 			return "return;"
 		}
-		// ret i32 0
+		// ret i32 0 or ret i32 %result
 		if len(parts) >= 3 {
-			return fmt.Sprintf("return %s;", parts[2])
+			value := parts[2]
+			// Check if value is a literal number
+			if _, err := strconv.Atoi(value); err != nil {
+				// It's a variable, sanitize it
+				value = e.typeMapper.SanitizeName(value)
+			}
+			return fmt.Sprintf("return %s;", value)
 		}
 		return "return;"
+	}
+
+	// Handle assignment with arithmetic operations
+	// Example: %result = add i32 %a, %b
+	if strings.Contains(instruction, "=") && !strings.Contains(instruction, "call") {
+		return e.convertAssignmentInstruction(instruction)
 	}
 
 	// Handle call instructions
@@ -164,17 +177,17 @@ func (e *Emitter) convertInstructionToC(instruction string) string {
 
 	// Handle alloca (stack allocation)
 	if strings.Contains(instruction, "alloca") {
-		return "/* alloca - stack allocation */"
+		return e.convertAllocaInstruction(instruction)
 	}
 
 	// Handle store instructions
 	if strings.HasPrefix(instruction, "store") {
-		return "/* store instruction */"
+		return e.convertStoreInstruction(instruction)
 	}
 
 	// Handle load instructions
 	if strings.Contains(instruction, "load") {
-		return "/* load instruction */"
+		return e.convertLoadInstruction(instruction)
 	}
 
 	// Handle branch instructions
@@ -193,26 +206,214 @@ func (e *Emitter) convertInstructionToC(instruction string) string {
 	return fmt.Sprintf("/* %s */", instruction)
 }
 
-// convertCallInstruction converts a call instruction to C
-func (e *Emitter) convertCallInstruction(instruction string) string {
-	// Simple call conversion - extract function name and basic parameters
-	// Example: call void @puts(i8* %1)
-	if strings.Contains(instruction, "@") {
-		parts := strings.Split(instruction, "@")
-		if len(parts) > 1 {
-			funcPart := parts[1]
-			funcName := strings.Split(funcPart, "(")[0]
-			funcName = e.typeMapper.SanitizeName(funcName)
+// convertAssignmentInstruction converts an assignment instruction to C
+func (e *Emitter) convertAssignmentInstruction(instruction string) string {
+	// Example: %result = add i32 %a, %b
+	parts := strings.SplitN(instruction, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Sprintf("/* %s */", instruction)
+	}
+
+	lhs := strings.TrimSpace(parts[0])
+	rhs := strings.TrimSpace(parts[1])
+	lhs = e.typeMapper.SanitizeName(lhs)
+
+	// Parse the operation
+	rhsParts := strings.Fields(rhs)
+	if len(rhsParts) == 0 {
+		return fmt.Sprintf("/* %s */", instruction)
+	}
+
+	op := rhsParts[0]
+
+	switch op {
+	case "add", "sub", "mul", "sdiv", "udiv", "srem", "urem":
+		if len(rhsParts) >= 4 {
+			// add i32 %a, %b
+			cType := e.typeMapper.LLVMTypeToC(rhsParts[1])
+			operand1 := strings.TrimSuffix(e.typeMapper.SanitizeName(rhsParts[2]), ",")
+			operand2 := e.typeMapper.SanitizeName(rhsParts[3])
 			
-			// Check if this is a known function
-			if funcName == "puts" {
-				return fmt.Sprintf("%s(/* args */);", funcName)
+			var operator string
+			switch op {
+			case "add":
+				operator = "+"
+			case "sub":
+				operator = "-"
+			case "mul":
+				operator = "*"
+			case "sdiv", "udiv":
+				operator = "/"
+			case "srem", "urem":
+				operator = "%"
 			}
 			
-			return fmt.Sprintf("%s(/* args */);", funcName)
+			return fmt.Sprintf("%s %s = %s %s %s;", cType, lhs, operand1, operator, operand2)
 		}
 	}
-	return "/* call instruction */"
+
+	return fmt.Sprintf("/* %s */", instruction)
+}
+
+// convertAllocaInstruction converts an alloca instruction to C
+func (e *Emitter) convertAllocaInstruction(instruction string) string {
+	// Example: %ptr = alloca i32
+	parts := strings.SplitN(instruction, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Sprintf("/* %s */", instruction)
+	}
+
+	lhs := strings.TrimSpace(parts[0])
+	rhs := strings.TrimSpace(parts[1])
+	lhs = e.typeMapper.SanitizeName(lhs)
+
+	rhsParts := strings.Fields(rhs)
+	if len(rhsParts) >= 2 && rhsParts[0] == "alloca" {
+		allocType := e.typeMapper.LLVMTypeToC(rhsParts[1])
+		return fmt.Sprintf("%s %s;", allocType, lhs)
+	}
+
+	return fmt.Sprintf("/* %s */", instruction)
+}
+
+// convertStoreInstruction converts a store instruction to C
+func (e *Emitter) convertStoreInstruction(instruction string) string {
+	// Example: store i32 %value, i32* %ptr
+	parts := strings.Fields(instruction)
+	if len(parts) >= 5 {
+		value := e.typeMapper.SanitizeName(parts[2])
+		value = strings.TrimSuffix(value, ",")
+		dest := e.typeMapper.SanitizeName(parts[4])
+		return fmt.Sprintf("*%s = %s;", dest, value)
+	}
+	return fmt.Sprintf("/* %s */", instruction)
+}
+
+// convertLoadInstruction converts a load instruction to C
+func (e *Emitter) convertLoadInstruction(instruction string) string {
+	// Example: %value = load i32, i32* %ptr
+	parts := strings.SplitN(instruction, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Sprintf("/* %s */", instruction)
+	}
+
+	lhs := strings.TrimSpace(parts[0])
+	rhs := strings.TrimSpace(parts[1])
+	lhs = e.typeMapper.SanitizeName(lhs)
+
+	rhsParts := strings.Fields(rhs)
+	if len(rhsParts) >= 3 && rhsParts[0] == "load" {
+		loadType := e.typeMapper.LLVMTypeToC(rhsParts[1])
+		loadType = strings.TrimSuffix(loadType, ",")
+		src := e.typeMapper.SanitizeName(rhsParts[len(rhsParts)-1])
+		return fmt.Sprintf("%s %s = *%s;", loadType, lhs, src)
+	}
+
+	return fmt.Sprintf("/* %s */", instruction)
+}
+
+// convertCallInstruction converts a call instruction to C
+func (e *Emitter) convertCallInstruction(instruction string) string {
+	// Parse call instruction
+	// Example: call void @puts(i8* %1)
+	// Example: %0 = call i32 @add(i32 5, i32 3)
+	
+	hasAssignment := strings.Contains(instruction, "=")
+	var lhs string
+	var callPart string
+	
+	if hasAssignment {
+		parts := strings.SplitN(instruction, "=", 2)
+		lhs = e.typeMapper.SanitizeName(strings.TrimSpace(parts[0]))
+		callPart = strings.TrimSpace(parts[1])
+	} else {
+		callPart = instruction
+	}
+	
+	// Extract function name
+	if !strings.Contains(callPart, "@") {
+		return fmt.Sprintf("/* %s */", instruction)
+	}
+	
+	atIndex := strings.Index(callPart, "@")
+	afterAt := callPart[atIndex+1:]
+	parenIndex := strings.Index(afterAt, "(")
+	
+	if parenIndex == -1 {
+		return fmt.Sprintf("/* %s */", instruction)
+	}
+	
+	funcName := e.typeMapper.SanitizeName(afterAt[:parenIndex])
+	
+	// Extract arguments
+	argsStart := atIndex + 1 + parenIndex + 1
+	argsEnd := strings.LastIndex(callPart, ")")
+	
+	if argsEnd == -1 {
+		argsEnd = len(callPart)
+	}
+	
+	argsStr := ""
+	if argsStart < argsEnd {
+		argsPart := callPart[argsStart:argsEnd]
+		args := e.parseCallArguments(argsPart)
+		argsStr = strings.Join(args, ", ")
+	}
+	
+	// Generate C code
+	if hasAssignment {
+		// Extract return type
+		callFields := strings.Fields(callPart)
+		var returnType string
+		if len(callFields) >= 2 {
+			returnType = e.typeMapper.LLVMTypeToC(callFields[1])
+		} else {
+			returnType = "int"
+		}
+		return fmt.Sprintf("%s %s = %s(%s);", returnType, lhs, funcName, argsStr)
+	}
+	
+	return fmt.Sprintf("%s(%s);", funcName, argsStr)
+}
+
+// parseCallArguments parses function call arguments
+func (e *Emitter) parseCallArguments(argsStr string) []string {
+	if strings.TrimSpace(argsStr) == "" {
+		return []string{}
+	}
+	
+	args := []string{}
+	parts := strings.Split(argsStr, ",")
+	
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		
+		// Parse "type value" format
+		tokens := strings.Fields(part)
+		if len(tokens) >= 2 {
+			value := tokens[len(tokens)-1]
+			// Check if value is a literal number
+			if _, err := strconv.Atoi(value); err == nil {
+				args = append(args, value)
+			} else {
+				value = e.typeMapper.SanitizeName(value)
+				args = append(args, value)
+			}
+		} else if len(tokens) == 1 {
+			value := tokens[0]
+			if _, err := strconv.Atoi(value); err == nil {
+				args = append(args, value)
+			} else {
+				value = e.typeMapper.SanitizeName(value)
+				args = append(args, value)
+			}
+		}
+	}
+	
+	return args
 }
 
 // convertBranchInstruction converts a branch instruction to C

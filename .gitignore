@@ -8,6 +8,10 @@
 *.so
 *.dylib
 
+# Compiled binaries
+go2c
+llvm2c
+
 # Test binary, built with `go test -c`
 *.test
 
