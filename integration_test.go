@@ -77,6 +77,21 @@ func TestLLVM2CIntegration(t *testing.T) {
 				"bool cmp =",
 			},
 		},
+		{
+			name:      "multiple return values",
+			inputFile: "testdata/input/multiret.ll",
+			checkStrings: []string{
+				"typedef struct {",
+				"multi_return_1_t foo(int x)",
+				"multi_return_1_t result;",
+				"result.field0 = x;",
+				"result2.field1 = 42;",
+				"return result2;",
+				"multi_return_1_t var_0 = foo(10);",
+				"int val1 = var_0.field0;",
+				"int val2 = var_0.field1;",
+			},
+		},
 	}
 
 	for _, tt := range tests {

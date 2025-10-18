@@ -164,13 +164,21 @@ go2c/
 ✓ Arithmetic operations (+, -, *, /, %)  
 ✓ Comparison operations (==, !=, <, >, <=, >=)  
 ✓ Function parameters and return values  
+✓ **Multiple return values** via aggregate types - **NEW!**  
 ✓ Global variables and string constants  
-✓ **Control flow patterns** (if/else, while loops, for loops, switch statements) - **NEW!**  
+✓ **Control flow patterns** (if/else, while loops, for loops, switch statements)  
 ✓ Structured C code generation (not just goto/labels)  
 
 ### Recent Improvements
 
-**Enhanced Control Flow Generation** (Latest):
+**Multiple Return Values Support** (Latest):
+- Functions returning multiple values now automatically converted to C structs
+- Supports Go's common pattern of returning `(value, error)`
+- `insertvalue` and `extractvalue` LLVM instructions properly handled
+- Generates type-safe struct definitions for each unique return signature
+- Enables idiomatic Go error handling to work in transpiled C code
+
+**Enhanced Control Flow Generation**:
 - Detects if-else patterns and generates idiomatic `if/else` statements
 - Detects while loop patterns and generates `while` loops
 - Detects for-loop patterns and generates C `for` loops

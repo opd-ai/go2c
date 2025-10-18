@@ -157,16 +157,22 @@ func (p *Parser) ParseFile(filePath string) (*Module, error) {
 // parseFunction parses a function definition line
 func (p *Parser) parseFunction(line string) (*Function, error) {
 	// Example: define i32 @main() {
-	re := regexp.MustCompile(`define\s+(\S+)\s+@([^\(]+)\((.*?)\)`)
+	// Example with aggregate: define {i32, i32} @foo(i32 %x) {
+	
+	// First extract the function name and parameters
+	// Handle aggregate return types by matching everything before @
+	re := regexp.MustCompile(`define\s+(.*?)\s+@([^\(]+)\((.*?)\)`)
 	matches := re.FindStringSubmatch(line)
 	
 	if len(matches) < 3 {
 		return nil, fmt.Errorf("invalid function definition: %s", line)
 	}
 
+	returnType := strings.TrimSpace(matches[1])
+	
 	fn := &Function{
 		Name:       matches[2],
-		ReturnType: matches[1],
+		ReturnType: returnType,
 		Parameters: []Parameter{},
 		IsExternal: false,
 	}
@@ -183,16 +189,19 @@ func (p *Parser) parseFunction(line string) (*Function, error) {
 // parseFunctionDeclaration parses a function declaration line
 func (p *Parser) parseFunctionDeclaration(line string) (*Function, error) {
 	// Example: declare void @llvm.memcpy.p0i8.p0i8.i32(i8*, i8*, i32, i1)
-	re := regexp.MustCompile(`declare\s+(\S+)\s+@([^\(]+)\((.*?)\)`)
+	// Handle aggregate return types
+	re := regexp.MustCompile(`declare\s+(.*?)\s+@([^\(]+)\((.*?)\)`)
 	matches := re.FindStringSubmatch(line)
 	
 	if len(matches) < 3 {
 		return nil, fmt.Errorf("invalid function declaration: %s", line)
 	}
 
+	returnType := strings.TrimSpace(matches[1])
+	
 	fn := &Function{
 		Name:       matches[2],
-		ReturnType: matches[1],
+		ReturnType: returnType,
 		Parameters: []Parameter{},
 		IsExternal: true,
 	}

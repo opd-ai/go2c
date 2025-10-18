@@ -196,9 +196,71 @@ void slice_append(slice_int* s, int value) {
 **Examples**:
 - Labeled break/continue
 - ~~Switch with fallthrough~~ **[RESOLVED]** - Switch statements now generate idiomatic C switch/case
-- Multiple return values
+- ~~Multiple return values~~ **[RESOLVED]** - Multiple return values now supported via aggregate types/structs
 
-**Status**: Basic if/else, loops, and switch statements work well. Complex patterns like labeled break/continue and multiple return values may need manual adjustment.
+**Status**: Basic if/else, loops, and switch statements work well. Multiple return values are now converted to struct types. Complex patterns like labeled break/continue may need manual adjustment.
+
+**Multiple Return Values Support** (NEW):
+
+Go functions with multiple return values are now automatically converted to C functions that return a struct. This is particularly useful for error handling patterns.
+
+**Example**:
+```go
+// Go code with multiple return values
+func divide(a, b int) (int, error) {
+    if b == 0 {
+        return 0, errors.New("division by zero")
+    }
+    return a / b, nil
+}
+
+result, err := divide(10, 2)
+if err != nil {
+    // handle error
+}
+```
+
+**Generated C Code**:
+```c
+// Struct definition for return values
+typedef struct {
+    int field0;      // First return value
+    int field1;      // Second return value (error)
+} divide_return_t;
+
+// Function returns struct
+divide_return_t divide(int a, int b) {
+    divide_return_t result;
+    if (b == 0) {
+        result.field0 = 0;
+        result.field1 = 1;  // error indicator
+        return result;
+    }
+    result.field0 = a / b;
+    result.field1 = 0;  // no error
+    return result;
+}
+
+// Usage
+divide_return_t ret = divide(10, 2);
+int result = ret.field0;
+int err = ret.field1;
+if (err != 0) {
+    // handle error
+}
+```
+
+**How It Works**:
+1. Functions with aggregate return types `{type1, type2, ...}` in LLVM IR are detected
+2. A C struct type is automatically generated with fields for each return value
+3. `insertvalue` instructions are converted to struct field assignments
+4. `extractvalue` instructions are converted to struct field accesses
+5. Function calls properly handle the struct return type
+
+**Limitations**:
+- Field names are generic (field0, field1, etc.) rather than semantic names
+- Error types are represented as integers rather than full error objects
+- Large return values may be less efficient than pass-by-reference
 
 ### 14. Method Receivers
 
