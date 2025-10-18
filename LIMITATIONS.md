@@ -260,6 +260,7 @@ void slice_append(slice_int* s, int value) {
 - **If-else patterns**: Conditional branches with both true and false paths
 - **If-then patterns**: Conditional branches with only a true path
 - **While loops**: Loop patterns with condition check and back-edges
+- **For loops**: Loop patterns with initialization, condition, body, and increment blocks
 
 **Generated Code Examples**:
 
@@ -275,11 +276,17 @@ if (cmp) {
 while (cmp) {
     // loop body
 }
+
+// For loop pattern (LLVM IR with init/cond/body/incr blocks)
+for (; cmp; i = i + 1) {
+    // loop body
+}
 ```
 
 **Remaining Issues**:
-- Complex loop patterns (do-while, for-loops) still use goto/labels
+- Complex loop patterns (do-while) still use goto/labels
 - ~~Switch statements not yet converted to C switch~~ **[RESOLVED]** - Now fully supported
+- ~~For-loops still use goto/labels~~ **[RESOLVED]** - For-loop patterns now generate idiomatic C for-loops
 - Nested patterns may fall back to goto in some cases
 
 **Improvement**: Previously all control flow was converted to labels and goto statements, making generated code difficult to read. The enhanced code generator now produces more readable and maintainable C code for common patterns.

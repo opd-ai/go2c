@@ -240,3 +240,92 @@ func TestControlFlowAnalyzer_BasicBlocks(t *testing.T) {
 		t.Errorf("Next block not found")
 	}
 }
+
+func TestControlFlowAnalyzer_ForPattern(t *testing.T) {
+	// Test function with for-loop pattern
+	fn := &Function{
+		Name:       "sum_range",
+		ReturnType: "i32",
+		Parameters: []Parameter{
+			{Type: "i32", Name: "%start"},
+			{Type: "i32", Name: "%end"},
+		},
+		Body: []string{
+			"entry:",
+			"  br label %for.init",
+			"for.init:",
+			"  %i = alloca i32",
+			"  %sum = alloca i32",
+			"  store i32 %start, i32* %i",
+			"  store i32 0, i32* %sum",
+			"  br label %for.cond",
+			"for.cond:",
+			"  %i.val = load i32, i32* %i",
+			"  %cmp = icmp slt i32 %i.val, %end",
+			"  br i1 %cmp, label %for.body, label %for.end",
+			"for.body:",
+			"  %sum.val = load i32, i32* %sum",
+			"  %i.val2 = load i32, i32* %i",
+			"  %add = add i32 %sum.val, %i.val2",
+			"  store i32 %add, i32* %sum",
+			"  br label %for.inc",
+			"for.inc:",
+			"  %i.val3 = load i32, i32* %i",
+			"  %inc = add i32 %i.val3, 1",
+			"  store i32 %inc, i32* %i",
+			"  br label %for.cond",
+			"for.end:",
+			"  %result = load i32, i32* %sum",
+			"  ret i32 %result",
+		},
+	}
+	
+	cfa := NewControlFlowAnalyzer(fn)
+	patterns, err := cfa.AnalyzeControlFlow()
+	
+	if err != nil {
+		t.Fatalf("AnalyzeControlFlow failed: %v", err)
+	}
+	
+	// Debug: print blocks
+	blocks := cfa.GetBasicBlocks()
+	t.Logf("Found %d blocks", len(blocks))
+	for name, block := range blocks {
+		t.Logf("Block %s: %d instructions, terminator: %v", name, len(block.Instructions), block.Terminator)
+	}
+	
+	t.Logf("Found %d patterns", len(patterns))
+	for i, p := range patterns {
+		t.Logf("Pattern %d: type=%s, start=%s, init=%s, cond=%s, body=%s, incr=%s, end=%s", 
+			i, p.Type, p.StartLabel, p.InitBlock, p.CondBlock, p.BodyBlock, p.IncrBlock, p.EndLabel)
+	}
+	
+	if len(patterns) != 1 {
+		t.Fatalf("Expected 1 pattern, got %d", len(patterns))
+	}
+	
+	pattern := patterns[0]
+	if pattern.Type != "for" {
+		t.Errorf("Expected 'for' pattern, got '%s'", pattern.Type)
+	}
+	
+	if pattern.InitBlock != "for.init" {
+		t.Errorf("Expected init block 'for.init', got '%s'", pattern.InitBlock)
+	}
+	
+	if pattern.CondBlock != "for.cond" {
+		t.Errorf("Expected cond block 'for.cond', got '%s'", pattern.CondBlock)
+	}
+	
+	if pattern.BodyBlock != "for.body" {
+		t.Errorf("Expected body block 'for.body', got '%s'", pattern.BodyBlock)
+	}
+	
+	if pattern.IncrBlock != "for.inc" {
+		t.Errorf("Expected incr block 'for.inc', got '%s'", pattern.IncrBlock)
+	}
+	
+	if pattern.EndLabel != "for.end" {
+		t.Errorf("Expected end label 'for.end', got '%s'", pattern.EndLabel)
+	}
+}

@@ -35,10 +35,12 @@ type ControlFlowPattern struct {
 	Type         string       // "if-else", "if-then", "while", "for", "switch"
 	StartLabel   string       // The starting block label
 	EndLabel     string       // The ending/merge block label (if any)
-	CondBlock    string       // For if/while: condition block
+	CondBlock    string       // For if/while/for: condition block
 	ThenBlock    string       // For if: then block
 	ElseBlock    string       // For if: else block
 	BodyBlock    string       // For loops: body block
+	InitBlock    string       // For for-loops: initialization block
+	IncrBlock    string       // For for-loops: increment/post block
 	SwitchValue  string       // For switch: the value being switched on
 	SwitchCases  []SwitchCase // For switch: the case values and labels
 	DefaultLabel string       // For switch: the default label
@@ -263,6 +265,21 @@ func (cfa *ControlFlowAnalyzer) detectPatterns() []*ControlFlowPattern {
 		}
 	}
 	
+	// Detect for-loop patterns (must be checked before while loops)
+	for label, block := range cfa.blocks {
+		if usedBlocks[label] {
+			continue
+		}
+		
+		pattern := cfa.detectForPattern(label, block)
+		if pattern != nil {
+			patterns = append(patterns, pattern)
+			for _, b := range pattern.Blocks {
+				usedBlocks[b] = true
+			}
+		}
+	}
+	
 	// Detect while loop patterns
 	for label, block := range cfa.blocks {
 		if usedBlocks[label] {
@@ -403,6 +420,67 @@ func (cfa *ControlFlowAnalyzer) detectWhilePattern(label string, block *BasicBlo
 			CondBlock:  label,
 			BodyBlock:  bodyLabel,
 			Blocks:     []string{label, bodyLabel, endLabel},
+		}
+	}
+	
+	return nil
+}
+
+// detectForPattern detects for-loop patterns
+// For-loop structure:
+// for.init -> for.cond --(true)--> for.body -> for.inc -> for.cond
+//                      --(false)--> for.end
+func (cfa *ControlFlowAnalyzer) detectForPattern(label string, block *BasicBlock) *ControlFlowPattern {
+	// Check if this is a for.init block (starts the for loop)
+	if !strings.Contains(label, "for.init") {
+		return nil
+	}
+	
+	// for.init should jump unconditionally to for.cond
+	if block.Terminator == nil || block.Terminator.Type != "br_uncon" {
+		return nil
+	}
+	
+	condLabel := block.Terminator.UnconLabel
+	condBlock, condExists := cfa.blocks[condLabel]
+	
+	// for.cond must exist and have conditional branch
+	if !condExists || condBlock.Terminator == nil || condBlock.Terminator.Type != "br_cond" {
+		return nil
+	}
+	
+	bodyLabel := condBlock.Terminator.TrueLabel
+	endLabel := condBlock.Terminator.FalseLabel
+	
+	bodyBlock, bodyExists := cfa.blocks[bodyLabel]
+	if !bodyExists {
+		return nil
+	}
+	
+	// Body should jump to increment block
+	if bodyBlock.Terminator == nil || bodyBlock.Terminator.Type != "br_uncon" {
+		return nil
+	}
+	
+	incrLabel := bodyBlock.Terminator.UnconLabel
+	incrBlock, incrExists := cfa.blocks[incrLabel]
+	
+	// Increment block must exist and jump back to condition
+	if !incrExists || incrBlock.Terminator == nil {
+		return nil
+	}
+	
+	// Verify increment block jumps back to condition (creating the loop)
+	if incrBlock.Terminator.Type == "br_uncon" && incrBlock.Terminator.UnconLabel == condLabel {
+		return &ControlFlowPattern{
+			Type:       "for",
+			StartLabel: label,
+			EndLabel:   endLabel,
+			InitBlock:  label,
+			CondBlock:  condLabel,
+			BodyBlock:  bodyLabel,
+			IncrBlock:  incrLabel,
+			Blocks:     []string{label, condLabel, bodyLabel, incrLabel, endLabel},
 		}
 	}
 	
