@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -52,10 +53,35 @@ func (e *Emitter) Emit(module *llvm.Module) (string, error) {
 		sb.WriteString("\n")
 	}
 
-	// Write forward declarations for user functions
+	// First pass: process all functions to discover aggregate types
 	analyzer := llvm.NewAnalyzer(module)
 	userFunctions := analyzer.GetUserFunctions()
 	
+	for _, fn := range userFunctions {
+		// Register aggregate return types
+		if e.typeMapper.IsAggregateType(fn.ReturnType) {
+			e.typeMapper.LLVMTypeToC(fn.ReturnType)
+		}
+		// Register aggregate parameter types
+		for _, param := range fn.Parameters {
+			if e.typeMapper.IsAggregateType(param.Type) {
+				e.typeMapper.LLVMTypeToC(param.Type)
+			}
+		}
+	}
+
+	// Write aggregate type definitions (structs for multiple return values)
+	aggregateTypes := e.typeMapper.GetAggregateTypes()
+	if len(aggregateTypes) > 0 {
+		sb.WriteString("// Aggregate type definitions (for multiple return values)\n")
+		for _, aggType := range aggregateTypes {
+			structDef := e.generateAggregateTypeDefinition(aggType)
+			sb.WriteString(structDef + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Write forward declarations for user functions
 	if len(userFunctions) > 0 {
 		sb.WriteString("// Forward declarations\n")
 		for _, fn := range userFunctions {
@@ -156,6 +182,16 @@ func (e *Emitter) convertInstructionToC(instruction string) string {
 		return e.convertReturnInstruction(instruction)
 	}
 
+	// Handle insertvalue instructions (for aggregate types)
+	if strings.Contains(instruction, "insertvalue") {
+		return e.convertInsertValueInstruction(instruction)
+	}
+
+	// Handle extractvalue instructions (for aggregate types)
+	if strings.Contains(instruction, "extractvalue") {
+		return e.convertExtractValueInstruction(instruction)
+	}
+
 	// Handle assignment with arithmetic operations
 	// Example: %result = add i32 %a, %b
 	if strings.Contains(instruction, "=") && !strings.Contains(instruction, "call") {
@@ -200,21 +236,58 @@ func (e *Emitter) convertInstructionToC(instruction string) string {
 
 // convertReturnInstruction converts a return instruction to C
 func (e *Emitter) convertReturnInstruction(instruction string) string {
-	parts := strings.Fields(instruction)
-	if len(parts) == 1 || (len(parts) >= 2 && parts[1] == "void") {
+	instruction = strings.TrimSpace(instruction)
+	
+	// Handle simple "ret" or "ret void"
+	if instruction == "ret" || instruction == "ret void" {
 		return "return;"
 	}
-	// ret i32 0 or ret i32 %result
-	if len(parts) >= 3 {
-		value := parts[2]
-		// Check if value is a literal number
-		if _, err := strconv.Atoi(value); err != nil {
-			// It's a variable, sanitize it
-			value = e.typeMapper.SanitizeName(value)
-		}
-		return fmt.Sprintf("return %s;", value)
+	
+	// Parse the return instruction
+	// Format: ret <type> <value>
+	// Example: ret i32 0
+	// Example: ret i32 %result
+	// Example: ret {i32, i32} %result2
+	
+	parts := strings.SplitN(instruction, " ", 2)
+	if len(parts) < 2 {
+		return "return;"
 	}
-	return "return;"
+	
+	rest := strings.TrimSpace(parts[1])
+	
+	// Find the value part - it's after the type
+	// For aggregate types: {i32, i32} %result2
+	// For simple types: i32 %result or i32 0
+	
+	var value string
+	
+	// Check if it starts with an aggregate type
+	if strings.HasPrefix(rest, "{") {
+		// Find the closing brace
+		closeBrace := strings.Index(rest, "}")
+		if closeBrace != -1 && closeBrace+1 < len(rest) {
+			value = strings.TrimSpace(rest[closeBrace+1:])
+		}
+	} else {
+		// Simple type - split by space
+		typeParts := strings.Fields(rest)
+		if len(typeParts) >= 2 {
+			value = typeParts[len(typeParts)-1]
+		}
+	}
+	
+	if value == "" {
+		return "return;"
+	}
+	
+	// Check if value is a literal number
+	if _, err := strconv.Atoi(value); err != nil {
+		// It's a variable, sanitize it
+		value = e.typeMapper.SanitizeName(value)
+	}
+	
+	return fmt.Sprintf("return %s;", value)
 }
 
 // convertAssignmentInstruction converts an assignment instruction to C
@@ -402,10 +475,28 @@ func (e *Emitter) convertCallInstruction(instruction string) string {
 	// Generate C code
 	if hasAssignment {
 		// Extract return type
+		// Handle aggregate types like {i32, i32}
 		callFields := strings.Fields(callPart)
 		var returnType string
+		
 		if len(callFields) >= 2 {
-			returnType = e.typeMapper.LLVMTypeToC(callFields[1])
+			// Check if it's an aggregate type
+			if strings.HasPrefix(callPart, "call") {
+				// Find the type after "call"
+				afterCall := strings.TrimPrefix(callPart, "call")
+				afterCall = strings.TrimSpace(afterCall)
+				
+				// Extract type before @function_name
+				atIndex := strings.Index(afterCall, "@")
+				if atIndex > 0 {
+					typeStr := strings.TrimSpace(afterCall[:atIndex])
+					returnType = e.typeMapper.LLVMTypeToC(typeStr)
+				} else {
+					returnType = e.typeMapper.LLVMTypeToC(callFields[1])
+				}
+			} else {
+				returnType = e.typeMapper.LLVMTypeToC(callFields[1])
+			}
 		} else {
 			returnType = "int"
 		}
@@ -1132,4 +1223,110 @@ func (e *Emitter) generateSwitch(
 	
 	// Close switch statement
 	sb.WriteString(fmt.Sprintf("%s}\n", indentStr))
+}
+
+// generateAggregateTypeDefinition generates a C struct definition for an aggregate type
+func (e *Emitter) generateAggregateTypeDefinition(aggType *AggregateType) string {
+	var sb strings.Builder
+	
+	sb.WriteString(fmt.Sprintf("typedef struct {\n"))
+	
+	// Generate fields
+	for i, fieldType := range aggType.FieldTypes {
+		cType := e.typeMapper.LLVMTypeToC(fieldType)
+		sb.WriteString(fmt.Sprintf("    %s field%d;\n", cType, i))
+	}
+	
+	sb.WriteString(fmt.Sprintf("} %s;", aggType.Name))
+	
+	return sb.String()
+}
+
+// convertInsertValueInstruction converts an insertvalue instruction to C
+// Example: %result = insertvalue {i32, i32} undef, i32 %x, 0
+// Becomes: result.field0 = x;
+func (e *Emitter) convertInsertValueInstruction(instruction string) string {
+	// Parse the instruction
+	parts := strings.SplitN(instruction, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Sprintf("/* %s */", instruction)
+	}
+
+	lhs := strings.TrimSpace(parts[0])
+	rhs := strings.TrimSpace(parts[1])
+	lhs = e.typeMapper.SanitizeName(lhs)
+
+	// Parse: insertvalue {type} aggregate, type value, index
+	// Example: insertvalue {i32, i32} undef, i32 %x, 0
+	re := regexp.MustCompile(`insertvalue\s+(\{[^}]+\})\s+(\S+),\s+(\S+)\s+(\S+),\s+(\d+)`)
+	matches := re.FindStringSubmatch(rhs)
+
+	if len(matches) < 6 {
+		return fmt.Sprintf("/* %s */", instruction)
+	}
+
+	aggregateType := matches[1]
+	aggregateValue := matches[2]
+	valueToInsert := matches[4]
+	index := matches[5]
+
+	// Get C type for aggregate
+	cType := e.typeMapper.LLVMTypeToC(aggregateType)
+
+	// Sanitize the value to insert (unless it's a literal)
+	sanitizedValue := valueToInsert
+	if _, err := strconv.Atoi(valueToInsert); err != nil {
+		// It's a variable, sanitize it
+		sanitizedValue = e.typeMapper.SanitizeName(valueToInsert)
+	}
+
+	// Handle "undef" - this means we're creating a new struct
+	if aggregateValue == "undef" {
+		// Declare the struct variable if it's the first insertvalue
+		return fmt.Sprintf("%s %s; %s.field%s = %s;", cType, lhs, lhs, index, sanitizedValue)
+	}
+
+	// Otherwise, we're modifying an existing struct
+	sanitizedAggregate := e.typeMapper.SanitizeName(aggregateValue)
+	return fmt.Sprintf("%s %s = %s; %s.field%s = %s;", cType, lhs, sanitizedAggregate, lhs, index, sanitizedValue)
+}
+
+// convertExtractValueInstruction converts an extractvalue instruction to C
+// Example: %val1 = extractvalue {i32, i32} %0, 0
+// Becomes: int val1 = var_0.field0;
+func (e *Emitter) convertExtractValueInstruction(instruction string) string {
+	// Parse the instruction
+	parts := strings.SplitN(instruction, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Sprintf("/* %s */", instruction)
+	}
+
+	lhs := strings.TrimSpace(parts[0])
+	rhs := strings.TrimSpace(parts[1])
+	lhs = e.typeMapper.SanitizeName(lhs)
+
+	// Parse: extractvalue {type} aggregate, index
+	// Example: extractvalue {i32, i32} %0, 0
+	re := regexp.MustCompile(`extractvalue\s+(\{[^}]+\})\s+(\S+),\s+(\d+)`)
+	matches := re.FindStringSubmatch(rhs)
+
+	if len(matches) < 4 {
+		return fmt.Sprintf("/* %s */", instruction)
+	}
+
+	aggregateType := matches[1]
+	aggregateValue := matches[2]
+	index := matches[3]
+
+	// Parse aggregate type to get field type
+	fieldTypes := e.typeMapper.parseAggregateFields(aggregateType)
+	indexInt, err := strconv.Atoi(index)
+	if err != nil || indexInt >= len(fieldTypes) {
+		return fmt.Sprintf("/* %s */", instruction)
+	}
+
+	fieldType := e.typeMapper.LLVMTypeToC(fieldTypes[indexInt])
+	sanitizedAggregate := e.typeMapper.SanitizeName(aggregateValue)
+
+	return fmt.Sprintf("%s %s = %s.field%s;", fieldType, lhs, sanitizedAggregate, index)
 }

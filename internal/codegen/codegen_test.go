@@ -36,6 +36,80 @@ func TestTypeMapper(t *testing.T) {
 	}
 }
 
+func TestAggregateTypes(t *testing.T) {
+	tm := NewTypeMapper()
+
+	tests := []struct {
+		name         string
+		llvmType     string
+		expectStruct bool
+	}{
+		{"simple aggregate", "{i32, i32}", true},
+		{"mixed aggregate", "{i32, float}", true},
+		{"three field aggregate", "{i32, i32, i32}", true},
+		{"nested aggregate", "{i32, {i32, i32}}", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tm.LLVMTypeToC(tt.llvmType)
+			
+			// Check that it returns a struct type name
+			if tt.expectStruct && result == "" {
+				t.Errorf("LLVMTypeToC(%q) returned empty string, expected struct type", tt.llvmType)
+			}
+			
+			// Verify the type is registered
+			if tt.expectStruct {
+				aggTypes := tm.GetAggregateTypes()
+				found := false
+				for _, aggType := range aggTypes {
+					if aggType.LLVMType == tt.llvmType {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Aggregate type %q was not registered", tt.llvmType)
+				}
+			}
+		})
+	}
+}
+
+func TestAggregateFieldParsing(t *testing.T) {
+	tm := NewTypeMapper()
+
+	tests := []struct {
+		name         string
+		llvmType     string
+		expectedFields []string
+	}{
+		{"two fields", "{i32, i32}", []string{"i32", "i32"}},
+		{"mixed types", "{i32, float}", []string{"i32", "float"}},
+		{"three fields", "{i32, i64, float}", []string{"i32", "i64", "float"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fields := tm.parseAggregateFields(tt.llvmType)
+			
+			if len(fields) != len(tt.expectedFields) {
+				t.Errorf("parseAggregateFields(%q) returned %d fields, expected %d", 
+					tt.llvmType, len(fields), len(tt.expectedFields))
+				return
+			}
+			
+			for i, field := range fields {
+				if field != tt.expectedFields[i] {
+					t.Errorf("parseAggregateFields(%q) field %d = %q, expected %q",
+						tt.llvmType, i, field, tt.expectedFields[i])
+				}
+			}
+		})
+	}
+}
+
 func TestSanitizeName(t *testing.T) {
 	tm := NewTypeMapper()
 

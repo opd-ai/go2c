@@ -8,13 +8,24 @@ import (
 
 // TypeMapper handles LLVM to C type conversions
 type TypeMapper struct {
-	customTypes map[string]string
+	customTypes     map[string]string
+	aggregateTypes  map[string]*AggregateType
+	aggregateCounter int
+}
+
+// AggregateType represents an aggregate type (struct) for multiple return values
+type AggregateType struct {
+	Name       string   // C struct name
+	LLVMType   string   // Original LLVM type string
+	FieldTypes []string // LLVM field types
 }
 
 // NewTypeMapper creates a new type mapper
 func NewTypeMapper() *TypeMapper {
 	return &TypeMapper{
-		customTypes: make(map[string]string),
+		customTypes:     make(map[string]string),
+		aggregateTypes:  make(map[string]*AggregateType),
+		aggregateCounter: 0,
 	}
 }
 
@@ -25,6 +36,16 @@ func (tm *TypeMapper) LLVMTypeToC(llvmType string) string {
 	// Check for custom types first
 	if cType, ok := tm.customTypes[llvmType]; ok {
 		return cType
+	}
+
+	// Check if this is an aggregate type
+	if aggType, ok := tm.aggregateTypes[llvmType]; ok {
+		return aggType.Name
+	}
+
+	// Handle aggregate types like {i32, i32}
+	if strings.HasPrefix(llvmType, "{") && strings.HasSuffix(llvmType, "}") {
+		return tm.registerAggregateType(llvmType)
 	}
 
 	// Handle pointer types
@@ -145,4 +166,79 @@ func (tm *TypeMapper) SanitizeName(name string) string {
 	}
 	
 	return name
+}
+
+// registerAggregateType registers an aggregate type and returns its C struct name
+func (tm *TypeMapper) registerAggregateType(llvmType string) string {
+	// Check if already registered
+	if aggType, ok := tm.aggregateTypes[llvmType]; ok {
+		return aggType.Name
+	}
+
+	// Parse the aggregate type: {i32, i32} -> ["i32", "i32"]
+	fieldTypes := tm.parseAggregateFields(llvmType)
+	
+	// Generate a unique struct name
+	tm.aggregateCounter++
+	structName := fmt.Sprintf("multi_return_%d_t", tm.aggregateCounter)
+	
+	aggType := &AggregateType{
+		Name:       structName,
+		LLVMType:   llvmType,
+		FieldTypes: fieldTypes,
+	}
+	
+	tm.aggregateTypes[llvmType] = aggType
+	return structName
+}
+
+// parseAggregateFields parses the fields from an aggregate type string
+func (tm *TypeMapper) parseAggregateFields(llvmType string) []string {
+	// Remove braces: {i32, i32} -> i32, i32
+	inner := strings.TrimPrefix(llvmType, "{")
+	inner = strings.TrimSuffix(inner, "}")
+	
+	// Split by comma, being careful of nested types
+	fields := []string{}
+	depth := 0
+	currentField := ""
+	
+	for _, ch := range inner {
+		if ch == '{' {
+			depth++
+			currentField += string(ch)
+		} else if ch == '}' {
+			depth--
+			currentField += string(ch)
+		} else if ch == ',' && depth == 0 {
+			if strings.TrimSpace(currentField) != "" {
+				fields = append(fields, strings.TrimSpace(currentField))
+			}
+			currentField = ""
+		} else {
+			currentField += string(ch)
+		}
+	}
+	
+	// Add the last field
+	if strings.TrimSpace(currentField) != "" {
+		fields = append(fields, strings.TrimSpace(currentField))
+	}
+	
+	return fields
+}
+
+// GetAggregateTypes returns all registered aggregate types
+func (tm *TypeMapper) GetAggregateTypes() []*AggregateType {
+	types := []*AggregateType{}
+	for _, aggType := range tm.aggregateTypes {
+		types = append(types, aggType)
+	}
+	return types
+}
+
+// IsAggregateType checks if a type is an aggregate type
+func (tm *TypeMapper) IsAggregateType(llvmType string) bool {
+	llvmType = strings.TrimSpace(llvmType)
+	return strings.HasPrefix(llvmType, "{") && strings.HasSuffix(llvmType, "}")
 }
