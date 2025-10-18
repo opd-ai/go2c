@@ -167,12 +167,23 @@ go2c/
 ✓ **Multiple return values** via aggregate types - **NEW!**  
 ✓ Global variables and string constants  
 ✓ **String operations** with runtime library - **NEW!**  
+✓ **Runtime functions** with automatic library - **NEW!**  
 ✓ **Control flow patterns** (if/else, while loops, for loops, switch statements)  
 ✓ Structured C code generation (not just goto/labels)  
 
 ### Recent Improvements
 
-**String Operations Support** (Latest):
+**Runtime Functions Support** (Latest):
+- Automatic runtime library inclusion when runtime functions detected
+- Comprehensive implementations of 18+ common Go runtime functions
+- Print functions (printint, printstring, printbool, etc.)
+- Memory functions (alloc, free, memcpy, memset)
+- String utilities (strcmp, strlen)
+- Zero configuration - works automatically
+- No external dependencies
+- See below for details
+
+**String Operations Support**:
 - Automatic string runtime library inclusion when strings detected
 - Go-compatible `go_string_t` type with data pointer and length
 - Complete string operations (compare, concat, substring, contains)
