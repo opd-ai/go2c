@@ -141,6 +141,75 @@ func TestControlFlowAnalyzer_WhilePattern(t *testing.T) {
 	}
 }
 
+func TestControlFlowAnalyzer_SwitchPattern(t *testing.T) {
+	// Test function with switch pattern
+	fn := &Function{
+		Name:       "testSwitch",
+		ReturnType: "i32",
+		Parameters: []Parameter{
+			{Type: "i32", Name: "%x"},
+		},
+		Body: []string{
+			"entry:",
+			"  switch i32 %x, label %default [",
+			"    i32 0, label %case0",
+			"    i32 1, label %case1",
+			"    i32 2, label %case2",
+			"  ]",
+			"case0:",
+			"  ret i32 10",
+			"case1:",
+			"  ret i32 20",
+			"case2:",
+			"  ret i32 30",
+			"default:",
+			"  ret i32 -1",
+		},
+	}
+	
+	cfa := NewControlFlowAnalyzer(fn)
+	patterns, err := cfa.AnalyzeControlFlow()
+	
+	if err != nil {
+		t.Fatalf("AnalyzeControlFlow failed: %v", err)
+	}
+	
+	// Debug: print blocks
+	blocks := cfa.GetBasicBlocks()
+	t.Logf("Found %d blocks", len(blocks))
+	for name, block := range blocks {
+		t.Logf("Block %s: %d instructions, terminator: %v", name, len(block.Instructions), block.Terminator)
+		if block.Terminator != nil && block.Terminator.Type == "switch" {
+			t.Logf("  Switch value: %s, default: %s, cases: %d",
+				block.Terminator.SwitchValue, block.Terminator.DefaultLabel, len(block.Terminator.SwitchCases))
+			for i, c := range block.Terminator.SwitchCases {
+				t.Logf("    Case %d: value=%s, label=%s", i, c.Value, c.Label)
+			}
+		}
+	}
+	
+	t.Logf("Found %d patterns", len(patterns))
+	for i, p := range patterns {
+		t.Logf("Pattern %d: type=%s, start=%s", i, p.Type, p.StartLabel)
+	}
+	
+	if len(patterns) != 1 {
+		t.Errorf("Expected 1 pattern, got %d", len(patterns))
+	}
+	
+	if len(patterns) > 0 {
+		if patterns[0].Type != "switch" {
+			t.Errorf("Expected switch pattern, got %s", patterns[0].Type)
+		}
+		if len(patterns[0].SwitchCases) != 3 {
+			t.Errorf("Expected 3 switch cases, got %d", len(patterns[0].SwitchCases))
+		}
+		if patterns[0].DefaultLabel != "default" {
+			t.Errorf("Expected default label 'default', got '%s'", patterns[0].DefaultLabel)
+		}
+	}
+}
+
 func TestControlFlowAnalyzer_BasicBlocks(t *testing.T) {
 	fn := &Function{
 		Name:       "simple",

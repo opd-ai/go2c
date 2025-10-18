@@ -165,7 +165,7 @@ go2c/
 ✓ Comparison operations (==, !=, <, >, <=, >=)  
 ✓ Function parameters and return values  
 ✓ Global variables and string constants  
-✓ **Control flow patterns** (if/else, while loops) - **NEW!**  
+✓ **Control flow patterns** (if/else, while loops, switch statements) - **NEW!**  
 ✓ Structured C code generation (not just goto/labels)  
 
 ### Recent Improvements
@@ -173,6 +173,7 @@ go2c/
 **Enhanced Control Flow Generation** (Latest):
 - Detects if-else patterns and generates idiomatic `if/else` statements
 - Detects while loop patterns and generates `while` loops
+- Detects switch statements and generates C `switch/case` statements
 - Converts LLVM comparison instructions (`icmp`) to C comparison operators
 - Produces more readable and maintainable C code
 

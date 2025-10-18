@@ -195,10 +195,10 @@ void slice_append(slice_int* s, int value) {
 
 **Examples**:
 - Labeled break/continue
-- Switch with fallthrough
+- ~~Switch with fallthrough~~ **[RESOLVED]** - Switch statements now generate idiomatic C switch/case
 - Multiple return values
 
-**Status**: Basic if/else and loops work, complex patterns may need manual adjustment.
+**Status**: Basic if/else, loops, and switch statements work well. Complex patterns like labeled break/continue and multiple return values may need manual adjustment.
 
 ### 14. Method Receivers
 
@@ -279,7 +279,7 @@ while (cmp) {
 
 **Remaining Issues**:
 - Complex loop patterns (do-while, for-loops) still use goto/labels
-- Switch statements not yet converted to C switch
+- ~~Switch statements not yet converted to C switch~~ **[RESOLVED]** - Now fully supported
 - Nested patterns may fall back to goto in some cases
 
 **Improvement**: Previously all control flow was converted to labels and goto statements, making generated code difficult to read. The enhanced code generator now produces more readable and maintainable C code for common patterns.

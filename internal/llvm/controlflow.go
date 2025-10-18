@@ -12,25 +12,37 @@ type BasicBlock struct {
 	Terminator   *Terminator
 }
 
+// SwitchCase represents a case in a switch statement
+type SwitchCase struct {
+	Value string // The constant value for this case
+	Label string // The target label for this case
+}
+
 // Terminator represents the terminating instruction of a basic block
 type Terminator struct {
-	Type        string // "br", "ret", "switch", etc.
-	Condition   string // For conditional branches
-	TrueLabel   string
-	FalseLabel  string
-	UnconLabel  string // For unconditional branches
+	Type         string       // "br_cond", "br_uncon", "ret", "switch", etc.
+	Condition    string       // For conditional branches
+	TrueLabel    string       // For conditional branches
+	FalseLabel   string       // For conditional branches
+	UnconLabel   string       // For unconditional branches
+	SwitchValue  string       // For switch: the value being switched on
+	SwitchCases  []SwitchCase // For switch: the case values and labels
+	DefaultLabel string       // For switch: the default label
 }
 
 // ControlFlowPattern represents a detected control flow pattern
 type ControlFlowPattern struct {
-	Type         string   // "if-else", "if-then", "while", "for"
-	StartLabel   string
-	EndLabel     string
-	CondBlock    string
-	ThenBlock    string
-	ElseBlock    string
-	BodyBlock    string
-	Blocks       []string // All blocks involved in this pattern
+	Type         string       // "if-else", "if-then", "while", "for", "switch"
+	StartLabel   string       // The starting block label
+	EndLabel     string       // The ending/merge block label (if any)
+	CondBlock    string       // For if/while: condition block
+	ThenBlock    string       // For if: then block
+	ElseBlock    string       // For if: else block
+	BodyBlock    string       // For loops: body block
+	SwitchValue  string       // For switch: the value being switched on
+	SwitchCases  []SwitchCase // For switch: the case values and labels
+	DefaultLabel string       // For switch: the default label
+	Blocks       []string     // All blocks involved in this pattern
 }
 
 // ControlFlowAnalyzer analyzes control flow in LLVM IR functions
@@ -62,10 +74,29 @@ func (cfa *ControlFlowAnalyzer) AnalyzeControlFlow() ([]*ControlFlowPattern, err
 func (cfa *ControlFlowAnalyzer) buildBasicBlocks() {
 	var currentBlock *BasicBlock
 	var currentLabel string
+	var switchAccumulator string
+	var inSwitch bool
 	
 	for _, line := range cfa.function.Body {
 		line = strings.TrimSpace(line)
 		if line == "" {
+			continue
+		}
+		
+		// Handle multi-line switch statements
+		if inSwitch {
+			switchAccumulator += " " + line
+			// Check if this is the end of the switch statement
+			if strings.HasSuffix(line, "]") {
+				inSwitch = false
+				if currentBlock != nil {
+					currentBlock.Instructions = append(currentBlock.Instructions, switchAccumulator)
+					currentBlock.Terminator = cfa.parseTerminator(switchAccumulator)
+					cfa.blocks[currentLabel] = currentBlock
+					currentBlock = nil
+				}
+				switchAccumulator = ""
+			}
 			continue
 		}
 		
@@ -81,6 +112,24 @@ func (cfa *ControlFlowAnalyzer) buildBasicBlocks() {
 			currentBlock = &BasicBlock{
 				Label:        currentLabel,
 				Instructions: []string{},
+			}
+			continue
+		}
+		
+		// Check if this is a switch terminator (which may span multiple lines)
+		if strings.HasPrefix(line, "switch") {
+			inSwitch = true
+			switchAccumulator = line
+			// Check if it's a single-line switch (unlikely but possible)
+			if strings.HasSuffix(line, "]") {
+				inSwitch = false
+				if currentBlock != nil {
+					currentBlock.Instructions = append(currentBlock.Instructions, switchAccumulator)
+					currentBlock.Terminator = cfa.parseTerminator(switchAccumulator)
+					cfa.blocks[currentLabel] = currentBlock
+					currentBlock = nil
+				}
+				switchAccumulator = ""
 			}
 			continue
 		}
@@ -157,6 +206,35 @@ func (cfa *ControlFlowAnalyzer) parseTerminator(instruction string) *Terminator 
 		return term
 	}
 	
+	if strings.HasPrefix(instruction, "switch") {
+		// Switch: switch i32 %x, label %default [ i32 0, label %case0 ... ]
+		term.Type = "switch"
+		
+		// Extract switch value and type
+		// Pattern: switch <type> <value>, label <default> [...]
+		re := regexp.MustCompile(`switch\s+(\S+)\s+(%?\S+),\s+label\s+(%\S+)`)
+		if matches := re.FindStringSubmatch(instruction); len(matches) > 3 {
+			term.SwitchValue = matches[2]
+			term.DefaultLabel = strings.TrimPrefix(matches[3], "%")
+		}
+		
+		// Extract case values and labels
+		// Pattern: i32 <value>, label %<label>
+		caseRe := regexp.MustCompile(`i\d+\s+(-?\d+),\s+label\s+(%\S+)`)
+		caseMatches := caseRe.FindAllStringSubmatch(instruction, -1)
+		term.SwitchCases = make([]SwitchCase, 0, len(caseMatches))
+		for _, match := range caseMatches {
+			if len(match) > 2 {
+				term.SwitchCases = append(term.SwitchCases, SwitchCase{
+					Value: match[1],
+					Label: strings.TrimPrefix(match[2], "%"),
+				})
+			}
+		}
+		
+		return term
+	}
+	
 	term.Type = "unknown"
 	return term
 }
@@ -196,6 +274,23 @@ func (cfa *ControlFlowAnalyzer) detectPatterns() []*ControlFlowPattern {
 			patterns = append(patterns, pattern)
 			for _, b := range pattern.Blocks {
 				usedBlocks[b] = true
+			}
+		}
+	}
+	
+	// Detect switch patterns
+	for label, block := range cfa.blocks {
+		if usedBlocks[label] {
+			continue
+		}
+		
+		if block.Terminator != nil && block.Terminator.Type == "switch" {
+			pattern := cfa.detectSwitchPattern(label, block)
+			if pattern != nil {
+				patterns = append(patterns, pattern)
+				for _, b := range pattern.Blocks {
+					usedBlocks[b] = true
+				}
 			}
 		}
 	}
@@ -312,6 +407,31 @@ func (cfa *ControlFlowAnalyzer) detectWhilePattern(label string, block *BasicBlo
 	}
 	
 	return nil
+}
+
+// detectSwitchPattern detects switch statement patterns
+func (cfa *ControlFlowAnalyzer) detectSwitchPattern(label string, block *BasicBlock) *ControlFlowPattern {
+	if block.Terminator == nil || block.Terminator.Type != "switch" {
+		return nil
+	}
+	
+	// Collect all case labels and default label
+	blocks := []string{label}
+	blocks = append(blocks, block.Terminator.DefaultLabel)
+	
+	for _, switchCase := range block.Terminator.SwitchCases {
+		blocks = append(blocks, switchCase.Label)
+	}
+	
+	// Create switch pattern
+	return &ControlFlowPattern{
+		Type:         "switch",
+		StartLabel:   label,
+		SwitchValue:  block.Terminator.SwitchValue,
+		SwitchCases:  block.Terminator.SwitchCases,
+		DefaultLabel: block.Terminator.DefaultLabel,
+		Blocks:       blocks,
+	}
 }
 
 // GetBasicBlocks returns the basic blocks
