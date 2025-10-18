@@ -40,6 +40,18 @@ func TestLLVM2CIntegration(t *testing.T) {
 				"return result;",
 			},
 		},
+		{
+			name:      "control flow patterns",
+			inputFile: "testdata/input/controlflow.ll",
+			checkStrings: []string{
+				"if (cmp)",
+				"while (cmp)",
+				"bool cmp = a > b;",
+				"bool cmp = i_val < n;",
+				"return a;",
+				"return b;",
+			},
+		},
 	}
 
 	for _, tt := range tests {

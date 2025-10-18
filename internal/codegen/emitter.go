@@ -123,11 +123,17 @@ func (e *Emitter) generateFunction(fn *llvm.Function) string {
 	if len(fn.Body) == 0 {
 		sb.WriteString("    // Empty function body\n")
 	} else {
-		// Basic instruction conversion
-		for _, line := range fn.Body {
-			cLine := e.convertInstructionToC(line)
-			if cLine != "" {
-				sb.WriteString("    " + cLine + "\n")
+		// Try to use enhanced control flow generation
+		enhanced := e.generateFunctionWithControlFlow(fn)
+		if enhanced != "" {
+			sb.WriteString(enhanced)
+		} else {
+			// Fallback to basic instruction conversion
+			for _, line := range fn.Body {
+				cLine := e.convertInstructionToC(line)
+				if cLine != "" {
+					sb.WriteString("    " + cLine + "\n")
+				}
 			}
 		}
 	}
@@ -147,21 +153,7 @@ func (e *Emitter) convertInstructionToC(instruction string) string {
 
 	// Handle return instructions
 	if strings.HasPrefix(instruction, "ret") {
-		parts := strings.Fields(instruction)
-		if len(parts) == 1 || parts[1] == "void" {
-			return "return;"
-		}
-		// ret i32 0 or ret i32 %result
-		if len(parts) >= 3 {
-			value := parts[2]
-			// Check if value is a literal number
-			if _, err := strconv.Atoi(value); err != nil {
-				// It's a variable, sanitize it
-				value = e.typeMapper.SanitizeName(value)
-			}
-			return fmt.Sprintf("return %s;", value)
-		}
-		return "return;"
+		return e.convertReturnInstruction(instruction)
 	}
 
 	// Handle assignment with arithmetic operations
@@ -204,6 +196,25 @@ func (e *Emitter) convertInstructionToC(instruction string) string {
 
 	// Default: comment out unknown instructions
 	return fmt.Sprintf("/* %s */", instruction)
+}
+
+// convertReturnInstruction converts a return instruction to C
+func (e *Emitter) convertReturnInstruction(instruction string) string {
+	parts := strings.Fields(instruction)
+	if len(parts) == 1 || (len(parts) >= 2 && parts[1] == "void") {
+		return "return;"
+	}
+	// ret i32 0 or ret i32 %result
+	if len(parts) >= 3 {
+		value := parts[2]
+		// Check if value is a literal number
+		if _, err := strconv.Atoi(value); err != nil {
+			// It's a variable, sanitize it
+			value = e.typeMapper.SanitizeName(value)
+		}
+		return fmt.Sprintf("return %s;", value)
+	}
+	return "return;"
 }
 
 // convertAssignmentInstruction converts an assignment instruction to C
@@ -249,6 +260,34 @@ func (e *Emitter) convertAssignmentInstruction(instruction string) string {
 			}
 			
 			return fmt.Sprintf("%s %s = %s %s %s;", cType, lhs, operand1, operator, operand2)
+		}
+	case "icmp":
+		// icmp sgt i32 %a, %b -> comparison
+		if len(rhsParts) >= 5 {
+			// icmp sgt i32 %a, %b
+			condition := rhsParts[1]  // sgt, slt, eq, ne, etc.
+			operand1 := strings.TrimSuffix(e.typeMapper.SanitizeName(rhsParts[3]), ",")
+			operand2 := e.typeMapper.SanitizeName(rhsParts[4])
+			
+			var operator string
+			switch condition {
+			case "eq":
+				operator = "=="
+			case "ne":
+				operator = "!="
+			case "sgt", "ugt":
+				operator = ">"
+			case "sge", "uge":
+				operator = ">="
+			case "slt", "ult":
+				operator = "<"
+			case "sle", "ule":
+				operator = "<="
+			default:
+				operator = "?" + condition + "?"
+			}
+			
+			return fmt.Sprintf("bool %s = %s %s %s;", lhs, operand1, operator, operand2)
 		}
 	}
 
@@ -466,4 +505,386 @@ func (e *Emitter) AddInclude(include string) {
 // AddDefine adds a preprocessor define
 func (e *Emitter) AddDefine(define string) {
 	e.defines = append(e.defines, define)
+}
+
+// generateFunctionWithControlFlow generates a function using detected control flow patterns
+func (e *Emitter) generateFunctionWithControlFlow(fn *llvm.Function) string {
+	// Analyze control flow
+	cfa := llvm.NewControlFlowAnalyzer(fn)
+	patterns, err := cfa.AnalyzeControlFlow()
+	if err != nil || len(patterns) == 0 {
+		return "" // Fallback to basic generation
+	}
+	
+	// Get basic blocks
+	blocks := cfa.GetBasicBlocks()
+	
+	// Track which blocks are part of structured control flow
+	structuredBlocks := make(map[string]bool)
+	for _, pattern := range patterns {
+		for _, blockLabel := range pattern.Blocks {
+			structuredBlocks[blockLabel] = true
+		}
+	}
+	
+	var sb strings.Builder
+	
+	// Generate code with structured control flow
+	processedBlocks := make(map[string]bool)
+	
+	// Start with entry block
+	e.generateBlockWithPatterns("entry", blocks, patterns, &sb, processedBlocks, 1)
+	
+	// Generate any remaining blocks that weren't covered
+	for label, block := range blocks {
+		if !processedBlocks[label] && label != "entry" {
+			e.generateBasicBlock(label, block, &sb, 1)
+			processedBlocks[label] = true
+		}
+	}
+	
+	return sb.String()
+}
+
+// generateBlockWithPatterns generates code for a block, checking for control flow patterns
+func (e *Emitter) generateBlockWithPatterns(
+	label string,
+	blocks map[string]*llvm.BasicBlock,
+	patterns []*llvm.ControlFlowPattern,
+	sb *strings.Builder,
+	processed map[string]bool,
+	indent int,
+) {
+	if processed[label] {
+		return
+	}
+	
+	block, exists := blocks[label]
+	if !exists {
+		return
+	}
+	
+	processed[label] = true
+	
+	// Check if this block starts a pattern
+	pattern := e.findPatternStartingAt(label, patterns)
+	
+	if pattern != nil {
+		switch pattern.Type {
+		case "if-else":
+			e.generateIfElse(pattern, blocks, patterns, sb, processed, indent)
+		case "if-then":
+			e.generateIfThen(pattern, blocks, patterns, sb, processed, indent)
+		case "while":
+			e.generateWhile(pattern, blocks, patterns, sb, processed, indent)
+		default:
+			// Unknown pattern, generate as basic block
+			e.generateBasicBlock(label, block, sb, indent)
+		}
+	} else {
+		// No pattern, generate as basic block but check for continuation
+		e.generateBasicBlockAndContinue(label, block, blocks, patterns, sb, processed, indent)
+	}
+}
+
+// generateBasicBlockAndContinue generates a basic block and follows control flow
+func (e *Emitter) generateBasicBlockAndContinue(
+	label string,
+	block *llvm.BasicBlock,
+	blocks map[string]*llvm.BasicBlock,
+	patterns []*llvm.ControlFlowPattern,
+	sb *strings.Builder,
+	processed map[string]bool,
+	indent int,
+) {
+	indentStr := strings.Repeat("    ", indent)
+	
+	// Generate instructions before the terminator
+	for i, inst := range block.Instructions {
+		// Skip the last instruction if it's the terminator
+		if i == len(block.Instructions)-1 && e.isTerminator(inst) {
+			// Check if this is an unconditional branch to next block
+			if block.Terminator != nil && block.Terminator.Type == "br_uncon" {
+				nextLabel := block.Terminator.UnconLabel
+				// Continue with the next block instead of generating goto
+				e.generateBlockWithPatterns(nextLabel, blocks, patterns, sb, processed, indent)
+				return
+			}
+			// Otherwise convert the terminator
+			cLine := e.convertInstructionToC(inst)
+			if cLine != "" {
+				sb.WriteString(indentStr + cLine + "\n")
+			}
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			sb.WriteString(indentStr + cLine + "\n")
+		}
+	}
+}
+
+// isTerminator checks if an instruction is a terminator
+func (e *Emitter) isTerminator(instruction string) bool {
+	instruction = strings.TrimSpace(instruction)
+	return strings.HasPrefix(instruction, "ret") ||
+		strings.HasPrefix(instruction, "br") ||
+		strings.HasPrefix(instruction, "switch") ||
+		strings.HasPrefix(instruction, "unreachable")
+}
+
+// findPatternStartingAt finds a pattern that starts at the given label
+func (e *Emitter) findPatternStartingAt(label string, patterns []*llvm.ControlFlowPattern) *llvm.ControlFlowPattern {
+	for _, pattern := range patterns {
+		if pattern.StartLabel == label {
+			return pattern
+		}
+	}
+	return nil
+}
+
+// generateIfElse generates an if-else statement
+func (e *Emitter) generateIfElse(
+	pattern *llvm.ControlFlowPattern,
+	blocks map[string]*llvm.BasicBlock,
+	patterns []*llvm.ControlFlowPattern,
+	sb *strings.Builder,
+	processed map[string]bool,
+	indent int,
+) {
+	condBlock := blocks[pattern.CondBlock]
+	thenBlock := blocks[pattern.ThenBlock]
+	elseBlock := blocks[pattern.ElseBlock]
+	
+	if condBlock == nil || thenBlock == nil || elseBlock == nil {
+		return
+	}
+	
+	indentStr := strings.Repeat("    ", indent)
+	
+	// Generate instructions before the branch (excluding terminator)
+	for i, inst := range condBlock.Instructions {
+		// Skip the last instruction if it's the branch terminator
+		if i == len(condBlock.Instructions)-1 && strings.HasPrefix(inst, "br") {
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			sb.WriteString(indentStr + cLine + "\n")
+		}
+	}
+	
+	// Generate if statement
+	if condBlock.Terminator != nil && condBlock.Terminator.Condition != "" {
+		condition := e.typeMapper.SanitizeName(condBlock.Terminator.Condition)
+		sb.WriteString(fmt.Sprintf("%sif (%s) {\n", indentStr, condition))
+		
+		// Generate then block (all instructions including terminator)
+		for _, inst := range thenBlock.Instructions {
+			cLine := e.convertInstructionToC(inst)
+			if cLine != "" {
+				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+			}
+		}
+		
+		sb.WriteString(fmt.Sprintf("%s} else {\n", indentStr))
+		
+		// Generate else block (all instructions including terminator)
+		for _, inst := range elseBlock.Instructions {
+			cLine := e.convertInstructionToC(inst)
+			if cLine != "" {
+				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+			}
+		}
+		
+		sb.WriteString(fmt.Sprintf("%s}\n", indentStr))
+		
+		// Mark blocks as processed
+		processed[pattern.ThenBlock] = true
+		processed[pattern.ElseBlock] = true
+		
+		// Continue with merge block if it exists
+		if pattern.EndLabel != "" && !processed[pattern.EndLabel] {
+			e.generateBlockWithPatterns(pattern.EndLabel, blocks, patterns, sb, processed, indent)
+		}
+	}
+}
+
+// buildReturnFromBlock is no longer needed - removed
+
+// generateIfThen generates an if-then statement (no else)
+func (e *Emitter) generateIfThen(
+	pattern *llvm.ControlFlowPattern,
+	blocks map[string]*llvm.BasicBlock,
+	patterns []*llvm.ControlFlowPattern,
+	sb *strings.Builder,
+	processed map[string]bool,
+	indent int,
+) {
+	condBlock := blocks[pattern.CondBlock]
+	thenBlock := blocks[pattern.ThenBlock]
+	
+	if condBlock == nil || thenBlock == nil {
+		return
+	}
+	
+	indentStr := strings.Repeat("    ", indent)
+	
+	// Generate instructions before the branch (excluding terminator)
+	for i, inst := range condBlock.Instructions {
+		// Skip the last instruction if it's the branch terminator
+		if i == len(condBlock.Instructions)-1 && strings.HasPrefix(inst, "br") {
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			sb.WriteString(indentStr + cLine + "\n")
+		}
+	}
+	
+	// Generate if statement
+	if condBlock.Terminator != nil && condBlock.Terminator.Condition != "" {
+		condition := e.typeMapper.SanitizeName(condBlock.Terminator.Condition)
+		sb.WriteString(fmt.Sprintf("%sif (%s) {\n", indentStr, condition))
+		
+		// Generate then block (all instructions except final unconditional branch to merge)
+		for i, inst := range thenBlock.Instructions {
+			// Skip unconditional branch to merge point
+			if i == len(thenBlock.Instructions)-1 && strings.HasPrefix(inst, "br label") {
+				break
+			}
+			cLine := e.convertInstructionToC(inst)
+			if cLine != "" {
+				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+			}
+		}
+		
+		sb.WriteString(fmt.Sprintf("%s}\n", indentStr))
+		
+		// Mark blocks as processed
+		processed[pattern.ThenBlock] = true
+		
+		// Continue with merge block
+		if pattern.EndLabel != "" && !processed[pattern.EndLabel] {
+			e.generateBlockWithPatterns(pattern.EndLabel, blocks, patterns, sb, processed, indent)
+		}
+	}
+}
+
+// generateWhile generates a while loop
+func (e *Emitter) generateWhile(
+	pattern *llvm.ControlFlowPattern,
+	blocks map[string]*llvm.BasicBlock,
+	patterns []*llvm.ControlFlowPattern,
+	sb *strings.Builder,
+	processed map[string]bool,
+	indent int,
+) {
+	condBlock := blocks[pattern.CondBlock]
+	bodyBlock := blocks[pattern.BodyBlock]
+	
+	if condBlock == nil || bodyBlock == nil {
+		return
+	}
+	
+	indentStr := strings.Repeat("    ", indent)
+	
+	// Generate instructions in cond block before the branch (to compute condition)
+	for i, inst := range condBlock.Instructions {
+		// Skip the conditional branch at the end
+		if i == len(condBlock.Instructions)-1 && strings.HasPrefix(inst, "br i1") {
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			sb.WriteString(indentStr + cLine + "\n")
+		}
+	}
+	
+	// Generate while loop
+	if condBlock.Terminator != nil && condBlock.Terminator.Condition != "" {
+		condition := e.typeMapper.SanitizeName(condBlock.Terminator.Condition)
+		sb.WriteString(fmt.Sprintf("%swhile (%s) {\n", indentStr, condition))
+		
+		// Generate loop body (excluding the back-edge branch)
+		for i, inst := range bodyBlock.Instructions {
+			// Skip unconditional branch back to condition
+			if i == len(bodyBlock.Instructions)-1 && strings.HasPrefix(inst, "br label") {
+				break
+			}
+			cLine := e.convertInstructionToC(inst)
+			if cLine != "" {
+				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+			}
+		}
+		
+		// Re-evaluate condition at end of loop (for variables modified in body)
+		for i, inst := range condBlock.Instructions {
+			// Skip the conditional branch at the end
+			if i == len(condBlock.Instructions)-1 && strings.HasPrefix(inst, "br i1") {
+				break
+			}
+			cLine := e.convertInstructionToC(inst)
+			if cLine != "" {
+				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+			}
+		}
+		
+		sb.WriteString(fmt.Sprintf("%s}\n", indentStr))
+		
+		// Mark blocks as processed
+		processed[pattern.CondBlock] = true
+		processed[pattern.BodyBlock] = true
+		
+		// Continue with code after loop
+		if pattern.EndLabel != "" && !processed[pattern.EndLabel] {
+			e.generateBlockWithPatterns(pattern.EndLabel, blocks, patterns, sb, processed, indent)
+		}
+	}
+}
+
+// generateBasicBlock generates a basic block as-is (fallback)
+func (e *Emitter) generateBasicBlock(
+	label string,
+	block *llvm.BasicBlock,
+	sb *strings.Builder,
+	indent int,
+) {
+	indentStr := strings.Repeat("    ", indent)
+	
+	// Generate label
+	if label != "entry" {
+		sb.WriteString(fmt.Sprintf("%s%s:\n", indentStr, label))
+	}
+	
+	// Generate instructions
+	for _, inst := range block.Instructions {
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			sb.WriteString(indentStr + cLine + "\n")
+		}
+	}
+	
+	// Generate terminator
+	if block.Terminator != nil {
+		var termInst string
+		switch block.Terminator.Type {
+		case "ret":
+			termInst = "ret"
+		case "br_uncon":
+			termInst = fmt.Sprintf("br label %%%s", block.Terminator.UnconLabel)
+		case "br_cond":
+			termInst = fmt.Sprintf("br i1 %s, label %%%s, label %%%s",
+				block.Terminator.Condition,
+				block.Terminator.TrueLabel,
+				block.Terminator.FalseLabel)
+		}
+		
+		if termInst != "" {
+			cLine := e.convertInstructionToC(termInst)
+			if cLine != "" {
+				sb.WriteString(indentStr + cLine + "\n")
+			}
+		}
+	}
 }
