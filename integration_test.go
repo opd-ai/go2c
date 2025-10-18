@@ -67,6 +67,16 @@ func TestLLVM2CIntegration(t *testing.T) {
 				"return -1;",
 			},
 		},
+		{
+			name:      "for loop",
+			inputFile: "testdata/input/forloop.ll",
+			checkStrings: []string{
+				"int sum_range(int start, int end)",
+				"int count_to_n(int n)",
+				"for (;",
+				"bool cmp =",
+			},
+		},
 	}
 
 	for _, tt := range tests {

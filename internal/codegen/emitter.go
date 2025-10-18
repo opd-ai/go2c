@@ -577,6 +577,8 @@ func (e *Emitter) generateBlockWithPatterns(
 			e.generateIfThen(pattern, blocks, patterns, sb, processed, indent)
 		case "while":
 			e.generateWhile(pattern, blocks, patterns, sb, processed, indent)
+		case "for":
+			e.generateFor(pattern, blocks, patterns, sb, processed, indent)
 		case "switch":
 			e.generateSwitch(pattern, blocks, patterns, sb, processed, indent)
 		default:
@@ -842,6 +844,140 @@ func (e *Emitter) generateWhile(
 		if pattern.EndLabel != "" && !processed[pattern.EndLabel] {
 			e.generateBlockWithPatterns(pattern.EndLabel, blocks, patterns, sb, processed, indent)
 		}
+	}
+}
+
+// generateFor generates a for loop
+func (e *Emitter) generateFor(
+	pattern *llvm.ControlFlowPattern,
+	blocks map[string]*llvm.BasicBlock,
+	patterns []*llvm.ControlFlowPattern,
+	sb *strings.Builder,
+	processed map[string]bool,
+	indent int,
+) {
+	initBlock := blocks[pattern.InitBlock]
+	condBlock := blocks[pattern.CondBlock]
+	bodyBlock := blocks[pattern.BodyBlock]
+	incrBlock := blocks[pattern.IncrBlock]
+	
+	if initBlock == nil || condBlock == nil || bodyBlock == nil || incrBlock == nil {
+		return
+	}
+	
+	indentStr := strings.Repeat("    ", indent)
+	
+	// Generate initialization code (before for statement)
+	var initStatements []string
+	for i, inst := range initBlock.Instructions {
+		// Skip the unconditional branch at the end
+		if i == len(initBlock.Instructions)-1 && strings.HasPrefix(inst, "br label") {
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			initStatements = append(initStatements, cLine)
+		}
+	}
+	
+	// Generate condition evaluation code (to get the condition variable)
+	var condStatements []string
+	var conditionVar string
+	for i, inst := range condBlock.Instructions {
+		// Skip the conditional branch at the end
+		if i == len(condBlock.Instructions)-1 && strings.HasPrefix(inst, "br i1") {
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			condStatements = append(condStatements, cLine)
+			// Extract the variable name from assignment (last statement before condition)
+			if strings.Contains(cLine, "bool") && strings.Contains(cLine, "=") {
+				parts := strings.SplitN(cLine, "=", 2)
+				if len(parts) == 2 {
+					varPart := strings.TrimSpace(strings.TrimPrefix(parts[0], "bool"))
+					conditionVar = strings.TrimSpace(varPart)
+				}
+			}
+		}
+	}
+	
+	// If we have a condition variable from the terminator
+	if conditionVar == "" && condBlock.Terminator != nil && condBlock.Terminator.Condition != "" {
+		conditionVar = e.typeMapper.SanitizeName(condBlock.Terminator.Condition)
+	}
+	
+	// Generate increment code
+	var incrStatements []string
+	for i, inst := range incrBlock.Instructions {
+		// Skip the unconditional branch back to condition
+		if i == len(incrBlock.Instructions)-1 && strings.HasPrefix(inst, "br label") {
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			incrStatements = append(incrStatements, cLine)
+		}
+	}
+	
+	// Output initialization statements before the for loop
+	for _, stmt := range initStatements {
+		sb.WriteString(indentStr + stmt + "\n")
+	}
+	
+	// Output condition evaluation before the for loop (for initial condition)
+	for _, stmt := range condStatements {
+		sb.WriteString(indentStr + stmt + "\n")
+	}
+	
+	// Generate for loop with simplified structure
+	// for (; condition; increment)
+	sb.WriteString(fmt.Sprintf("%sfor (; %s; ", indentStr, conditionVar))
+	
+	// Write increment as inline expression (simplified)
+	if len(incrStatements) > 0 {
+		// Try to extract simple increment expression
+		lastIncr := incrStatements[len(incrStatements)-1]
+		// Remove semicolon and extract expression
+		lastIncr = strings.TrimSuffix(lastIncr, ";")
+		// Check if it's a simple assignment we can use
+		if strings.Contains(lastIncr, "=") {
+			parts := strings.SplitN(lastIncr, "=", 2)
+			if len(parts) == 2 {
+				sb.WriteString(strings.TrimSpace(parts[0]) + " = " + strings.TrimSpace(parts[1]))
+			}
+		}
+	}
+	sb.WriteString(") {\n")
+	
+	// Generate loop body (excluding the branch to increment)
+	for i, inst := range bodyBlock.Instructions {
+		// Skip unconditional branch to increment block
+		if i == len(bodyBlock.Instructions)-1 && strings.HasPrefix(inst, "br label") {
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+		}
+	}
+	
+	// Re-evaluate condition at end of loop body (for variables modified in body)
+	for _, stmt := range condStatements {
+		sb.WriteString(strings.Repeat("    ", indent+1) + stmt + "\n")
+	}
+	
+	sb.WriteString(fmt.Sprintf("%s}\n", indentStr))
+	
+	// Mark blocks as processed
+	processed[pattern.InitBlock] = true
+	processed[pattern.CondBlock] = true
+	processed[pattern.BodyBlock] = true
+	processed[pattern.IncrBlock] = true
+	
+	// Continue with code after loop
+	if pattern.EndLabel != "" && !processed[pattern.EndLabel] {
+		e.generateBlockWithPatterns(pattern.EndLabel, blocks, patterns, sb, processed, indent)
 	}
 }
 
