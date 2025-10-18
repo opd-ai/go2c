@@ -77,8 +77,8 @@ func TestEmitter(t *testing.T) {
 				IsExternal: false,
 			},
 		},
-		Globals: []*llvm.Global{},
-		Types:   make(map[string]*llvm.Type),
+		Globals:  []*llvm.Global{},
+		Types:    make(map[string]*llvm.Type),
 		Metadata: make(map[string]string),
 	}
 
@@ -105,7 +105,7 @@ func TestEmitter(t *testing.T) {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && 
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
 		(findSubstring(s, substr) >= 0))
 }
 

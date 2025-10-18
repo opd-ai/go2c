@@ -63,10 +63,10 @@ func NewControlFlowAnalyzer(fn *Function) *ControlFlowAnalyzer {
 func (cfa *ControlFlowAnalyzer) AnalyzeControlFlow() ([]*ControlFlowPattern, error) {
 	// Build basic blocks from function body
 	cfa.buildBasicBlocks()
-	
+
 	// Detect control flow patterns
 	patterns := cfa.detectPatterns()
-	
+
 	return patterns, nil
 }
 
@@ -76,13 +76,13 @@ func (cfa *ControlFlowAnalyzer) buildBasicBlocks() {
 	var currentLabel string
 	var switchAccumulator string
 	var inSwitch bool
-	
+
 	for _, line := range cfa.function.Body {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		
+
 		// Handle multi-line switch statements
 		if inSwitch {
 			switchAccumulator += " " + line
@@ -99,14 +99,14 @@ func (cfa *ControlFlowAnalyzer) buildBasicBlocks() {
 			}
 			continue
 		}
-		
+
 		// Check if this is a label (basic block start)
 		if strings.HasSuffix(line, ":") {
 			// Save previous block
 			if currentBlock != nil {
 				cfa.blocks[currentLabel] = currentBlock
 			}
-			
+
 			// Start new block
 			currentLabel = strings.TrimSuffix(line, ":")
 			currentBlock = &BasicBlock{
@@ -115,7 +115,7 @@ func (cfa *ControlFlowAnalyzer) buildBasicBlocks() {
 			}
 			continue
 		}
-		
+
 		// Check if this is a switch terminator (which may span multiple lines)
 		if strings.HasPrefix(line, "switch") {
 			inSwitch = true
@@ -133,7 +133,7 @@ func (cfa *ControlFlowAnalyzer) buildBasicBlocks() {
 			}
 			continue
 		}
-		
+
 		// Check if this is a terminator instruction
 		if cfa.isTerminator(line) {
 			if currentBlock != nil {
@@ -145,13 +145,13 @@ func (cfa *ControlFlowAnalyzer) buildBasicBlocks() {
 			}
 			continue
 		}
-		
+
 		// Regular instruction
 		if currentBlock != nil {
 			currentBlock.Instructions = append(currentBlock.Instructions, line)
 		}
 	}
-	
+
 	// Save last block if any
 	if currentBlock != nil {
 		cfa.blocks[currentLabel] = currentBlock
@@ -169,24 +169,24 @@ func (cfa *ControlFlowAnalyzer) isTerminator(instruction string) bool {
 // parseTerminator parses a terminator instruction
 func (cfa *ControlFlowAnalyzer) parseTerminator(instruction string) *Terminator {
 	term := &Terminator{}
-	
+
 	if strings.HasPrefix(instruction, "ret") {
 		term.Type = "ret"
 		return term
 	}
-	
+
 	if strings.HasPrefix(instruction, "br") {
 		// Check if conditional or unconditional
 		if strings.Contains(instruction, ",") {
 			// Conditional: br i1 %cmp, label %true, label %false
 			term.Type = "br_cond"
-			
+
 			// Extract condition
 			re := regexp.MustCompile(`br\s+i1\s+(%\S+)`)
 			if matches := re.FindStringSubmatch(instruction); len(matches) > 1 {
 				term.Condition = strings.TrimSuffix(matches[1], ",")
 			}
-			
+
 			// Extract labels
 			labelRe := regexp.MustCompile(`label\s+(%\S+)`)
 			labels := labelRe.FindAllStringSubmatch(instruction, -1)
@@ -197,7 +197,7 @@ func (cfa *ControlFlowAnalyzer) parseTerminator(instruction string) *Terminator 
 		} else {
 			// Unconditional: br label %target
 			term.Type = "br_uncon"
-			
+
 			re := regexp.MustCompile(`label\s+(%\S+)`)
 			if matches := re.FindStringSubmatch(instruction); len(matches) > 1 {
 				term.UnconLabel = strings.TrimPrefix(matches[1], "%")
@@ -205,11 +205,11 @@ func (cfa *ControlFlowAnalyzer) parseTerminator(instruction string) *Terminator 
 		}
 		return term
 	}
-	
+
 	if strings.HasPrefix(instruction, "switch") {
 		// Switch: switch i32 %x, label %default [ i32 0, label %case0 ... ]
 		term.Type = "switch"
-		
+
 		// Extract switch value and type
 		// Pattern: switch <type> <value>, label <default> [...]
 		re := regexp.MustCompile(`switch\s+(\S+)\s+(%?\S+),\s+label\s+(%\S+)`)
@@ -217,7 +217,7 @@ func (cfa *ControlFlowAnalyzer) parseTerminator(instruction string) *Terminator 
 			term.SwitchValue = matches[2]
 			term.DefaultLabel = strings.TrimPrefix(matches[3], "%")
 		}
-		
+
 		// Extract case values and labels
 		// Pattern: i32 <value>, label %<label>
 		caseRe := regexp.MustCompile(`i\d+\s+(-?\d+),\s+label\s+(%\S+)`)
@@ -231,10 +231,10 @@ func (cfa *ControlFlowAnalyzer) parseTerminator(instruction string) *Terminator 
 				})
 			}
 		}
-		
+
 		return term
 	}
-	
+
 	term.Type = "unknown"
 	return term
 }
@@ -242,16 +242,16 @@ func (cfa *ControlFlowAnalyzer) parseTerminator(instruction string) *Terminator 
 // detectPatterns detects common control flow patterns
 func (cfa *ControlFlowAnalyzer) detectPatterns() []*ControlFlowPattern {
 	patterns := []*ControlFlowPattern{}
-	
+
 	// Track which blocks are already part of a pattern
 	usedBlocks := make(map[string]bool)
-	
+
 	// Detect if-else patterns
 	for label, block := range cfa.blocks {
 		if usedBlocks[label] {
 			continue
 		}
-		
+
 		if block.Terminator != nil && block.Terminator.Type == "br_cond" {
 			pattern := cfa.detectIfElsePattern(label, block)
 			if pattern != nil {
@@ -262,13 +262,13 @@ func (cfa *ControlFlowAnalyzer) detectPatterns() []*ControlFlowPattern {
 			}
 		}
 	}
-	
+
 	// Detect while loop patterns
 	for label, block := range cfa.blocks {
 		if usedBlocks[label] {
 			continue
 		}
-		
+
 		pattern := cfa.detectWhilePattern(label, block)
 		if pattern != nil {
 			patterns = append(patterns, pattern)
@@ -277,13 +277,13 @@ func (cfa *ControlFlowAnalyzer) detectPatterns() []*ControlFlowPattern {
 			}
 		}
 	}
-	
+
 	// Detect switch patterns
 	for label, block := range cfa.blocks {
 		if usedBlocks[label] {
 			continue
 		}
-		
+
 		if block.Terminator != nil && block.Terminator.Type == "switch" {
 			pattern := cfa.detectSwitchPattern(label, block)
 			if pattern != nil {
@@ -294,7 +294,7 @@ func (cfa *ControlFlowAnalyzer) detectPatterns() []*ControlFlowPattern {
 			}
 		}
 	}
-	
+
 	return patterns
 }
 
@@ -303,24 +303,24 @@ func (cfa *ControlFlowAnalyzer) detectIfElsePattern(label string, block *BasicBl
 	if block.Terminator == nil || block.Terminator.Type != "br_cond" {
 		return nil
 	}
-	
+
 	trueLabel := block.Terminator.TrueLabel
 	falseLabel := block.Terminator.FalseLabel
-	
+
 	trueBlock, trueExists := cfa.blocks[trueLabel]
 	falseBlock, falseExists := cfa.blocks[falseLabel]
-	
+
 	if !trueExists || !falseExists {
 		return nil
 	}
-	
+
 	// Check if both branches converge to a common block (if-else)
 	// or if false branch is the merge point (if-then)
-	
+
 	// Simple if-then pattern: true branch jumps to false label
-	if trueBlock.Terminator != nil && 
-	   trueBlock.Terminator.Type == "br_uncon" &&
-	   trueBlock.Terminator.UnconLabel == falseLabel {
+	if trueBlock.Terminator != nil &&
+		trueBlock.Terminator.Type == "br_uncon" &&
+		trueBlock.Terminator.UnconLabel == falseLabel {
 		return &ControlFlowPattern{
 			Type:       "if-then",
 			StartLabel: label,
@@ -330,13 +330,13 @@ func (cfa *ControlFlowAnalyzer) detectIfElsePattern(label string, block *BasicBl
 			Blocks:     []string{label, trueLabel, falseLabel},
 		}
 	}
-	
+
 	// Check for if-else pattern: both branches jump to same merge point
 	if trueBlock.Terminator != nil && falseBlock.Terminator != nil &&
-	   trueBlock.Terminator.Type == "br_uncon" &&
-	   falseBlock.Terminator.Type == "br_uncon" &&
-	   trueBlock.Terminator.UnconLabel == falseBlock.Terminator.UnconLabel {
-		
+		trueBlock.Terminator.Type == "br_uncon" &&
+		falseBlock.Terminator.Type == "br_uncon" &&
+		trueBlock.Terminator.UnconLabel == falseBlock.Terminator.UnconLabel {
+
 		mergeLabel := trueBlock.Terminator.UnconLabel
 		return &ControlFlowPattern{
 			Type:       "if-else",
@@ -348,12 +348,12 @@ func (cfa *ControlFlowAnalyzer) detectIfElsePattern(label string, block *BasicBl
 			Blocks:     []string{label, trueLabel, falseLabel, mergeLabel},
 		}
 	}
-	
+
 	// Check for if-else with immediate return in both branches
 	if trueBlock.Terminator != nil && falseBlock.Terminator != nil &&
-	   trueBlock.Terminator.Type == "ret" &&
-	   falseBlock.Terminator.Type == "ret" {
-		
+		trueBlock.Terminator.Type == "ret" &&
+		falseBlock.Terminator.Type == "ret" {
+
 		return &ControlFlowPattern{
 			Type:       "if-else",
 			StartLabel: label,
@@ -364,7 +364,7 @@ func (cfa *ControlFlowAnalyzer) detectIfElsePattern(label string, block *BasicBl
 			Blocks:     []string{label, trueLabel, falseLabel},
 		}
 	}
-	
+
 	return nil
 }
 
@@ -373,29 +373,29 @@ func (cfa *ControlFlowAnalyzer) detectWhilePattern(label string, block *BasicBlo
 	// While pattern: condition block with back-edge
 	// while.cond -> (true) while.body -> while.cond
 	//            -> (false) while.end
-	
+
 	if block.Terminator == nil || block.Terminator.Type != "br_cond" {
 		return nil
 	}
-	
+
 	// Check if this looks like a loop condition block
 	if !strings.Contains(label, "while.cond") && !strings.Contains(label, "for.cond") && !strings.Contains(label, "loop") {
 		return nil
 	}
-	
+
 	bodyLabel := block.Terminator.TrueLabel
 	endLabel := block.Terminator.FalseLabel
-	
+
 	bodyBlock, bodyExists := cfa.blocks[bodyLabel]
 	if !bodyExists {
 		return nil
 	}
-	
+
 	// Check if body block jumps back to condition
 	if bodyBlock.Terminator != nil &&
-	   bodyBlock.Terminator.Type == "br_uncon" &&
-	   bodyBlock.Terminator.UnconLabel == label {
-		
+		bodyBlock.Terminator.Type == "br_uncon" &&
+		bodyBlock.Terminator.UnconLabel == label {
+
 		return &ControlFlowPattern{
 			Type:       "while",
 			StartLabel: label,
@@ -405,7 +405,7 @@ func (cfa *ControlFlowAnalyzer) detectWhilePattern(label string, block *BasicBlo
 			Blocks:     []string{label, bodyLabel, endLabel},
 		}
 	}
-	
+
 	return nil
 }
 
@@ -414,15 +414,15 @@ func (cfa *ControlFlowAnalyzer) detectSwitchPattern(label string, block *BasicBl
 	if block.Terminator == nil || block.Terminator.Type != "switch" {
 		return nil
 	}
-	
+
 	// Collect all case labels and default label
 	blocks := []string{label}
 	blocks = append(blocks, block.Terminator.DefaultLabel)
-	
+
 	for _, switchCase := range block.Terminator.SwitchCases {
 		blocks = append(blocks, switchCase.Label)
 	}
-	
+
 	// Create switch pattern
 	return &ControlFlowPattern{
 		Type:         "switch",

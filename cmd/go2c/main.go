@@ -115,7 +115,7 @@ func transpile(inputFile, outputFile string, verbose, keepLLVM bool) error {
 	if verbose {
 		analyzer := llvm.NewAnalyzer(module)
 		summary := analyzer.GetSummary()
-		fmt.Printf("  Functions: %d (user: %d, external: %d)\n", 
+		fmt.Printf("  Functions: %d (user: %d, external: %d)\n",
 			summary.TotalFunctions, summary.UserFunctions, summary.ExternalFunctions)
 		fmt.Printf("  Globals: %d\n", summary.GlobalVariables)
 		fmt.Printf("  Types: %d\n", summary.Types)

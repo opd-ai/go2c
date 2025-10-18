@@ -64,14 +64,14 @@ func NewParser() *Parser {
 // Parse parses LLVM IR from a string
 func (p *Parser) Parse(llvmIR string) (*Module, error) {
 	scanner := bufio.NewScanner(strings.NewReader(llvmIR))
-	
+
 	var currentFunction *Function
 	var functionBody []string
 	inFunction := false
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		
+
 		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, ";") {
 			continue
@@ -83,7 +83,7 @@ func (p *Parser) Parse(llvmIR string) (*Module, error) {
 				currentFunction.Body = functionBody
 				p.module.Functions = append(p.module.Functions, currentFunction)
 			}
-			
+
 			fn, err := p.parseFunction(line)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse function: %w", err)
@@ -159,7 +159,7 @@ func (p *Parser) parseFunction(line string) (*Function, error) {
 	// Example: define i32 @main() {
 	re := regexp.MustCompile(`define\s+(\S+)\s+@([^\(]+)\((.*?)\)`)
 	matches := re.FindStringSubmatch(line)
-	
+
 	if len(matches) < 3 {
 		return nil, fmt.Errorf("invalid function definition: %s", line)
 	}
@@ -185,7 +185,7 @@ func (p *Parser) parseFunctionDeclaration(line string) (*Function, error) {
 	// Example: declare void @llvm.memcpy.p0i8.p0i8.i32(i8*, i8*, i32, i1)
 	re := regexp.MustCompile(`declare\s+(\S+)\s+@([^\(]+)\((.*?)\)`)
 	matches := re.FindStringSubmatch(line)
-	
+
 	if len(matches) < 3 {
 		return nil, fmt.Errorf("invalid function declaration: %s", line)
 	}
@@ -219,7 +219,7 @@ func (p *Parser) parseParameters(paramStr string) []Parameter {
 		if part == "" {
 			continue
 		}
-		
+
 		// Split type and name
 		tokens := strings.Fields(part)
 		if len(tokens) >= 1 {

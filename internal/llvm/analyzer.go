@@ -33,8 +33,8 @@ func (a *Analyzer) GetUserFunctions() []*Function {
 	for _, fn := range a.module.Functions {
 		// Skip LLVM intrinsics and runtime functions
 		if !strings.HasPrefix(fn.Name, "llvm.") &&
-		   !strings.HasPrefix(fn.Name, "runtime.") &&
-		   !fn.IsExternal {
+			!strings.HasPrefix(fn.Name, "runtime.") &&
+			!fn.IsExternal {
 			userFunctions = append(userFunctions, fn)
 		}
 	}

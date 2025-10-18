@@ -17,8 +17,8 @@ func TestLLVM2CIntegration(t *testing.T) {
 	defer os.Remove("/tmp/llvm2c_test")
 
 	tests := []struct {
-		name       string
-		inputFile  string
+		name         string
+		inputFile    string
 		checkStrings []string
 	}{
 		{

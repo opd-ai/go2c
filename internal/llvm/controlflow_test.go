@@ -23,34 +23,34 @@ func TestControlFlowAnalyzer_IfElsePattern(t *testing.T) {
 			"  ret i32 %b",
 		},
 	}
-	
+
 	cfa := NewControlFlowAnalyzer(fn)
 	patterns, err := cfa.AnalyzeControlFlow()
-	
+
 	if err != nil {
 		t.Fatalf("AnalyzeControlFlow failed: %v", err)
 	}
-	
+
 	// Debug: print blocks
 	blocks := cfa.GetBasicBlocks()
 	t.Logf("Found %d blocks", len(blocks))
 	for name, block := range blocks {
 		t.Logf("Block %s: %d instructions, terminator: %v", name, len(block.Instructions), block.Terminator)
 		if block.Terminator != nil {
-			t.Logf("  Terminator type: %s, true: %s, false: %s", 
+			t.Logf("  Terminator type: %s, true: %s, false: %s",
 				block.Terminator.Type, block.Terminator.TrueLabel, block.Terminator.FalseLabel)
 		}
 	}
-	
+
 	t.Logf("Found %d patterns", len(patterns))
 	for i, p := range patterns {
 		t.Logf("Pattern %d: type=%s, start=%s, end=%s", i, p.Type, p.StartLabel, p.EndLabel)
 	}
-	
+
 	if len(patterns) != 1 {
 		t.Errorf("Expected 1 pattern, got %d", len(patterns))
 	}
-	
+
 	if len(patterns) > 0 && patterns[0].Type != "if-else" {
 		t.Errorf("Expected if-else pattern, got %s", patterns[0].Type)
 	}
@@ -75,18 +75,18 @@ func TestControlFlowAnalyzer_IfThenPattern(t *testing.T) {
 			"  ret void",
 		},
 	}
-	
+
 	cfa := NewControlFlowAnalyzer(fn)
 	patterns, err := cfa.AnalyzeControlFlow()
-	
+
 	if err != nil {
 		t.Fatalf("AnalyzeControlFlow failed: %v", err)
 	}
-	
+
 	if len(patterns) != 1 {
 		t.Errorf("Expected 1 pattern, got %d", len(patterns))
 	}
-	
+
 	if len(patterns) > 0 && patterns[0].Type != "if-then" {
 		t.Errorf("Expected if-then pattern, got %s", patterns[0].Type)
 	}
@@ -124,18 +124,18 @@ func TestControlFlowAnalyzer_WhilePattern(t *testing.T) {
 			"  ret i32 %result",
 		},
 	}
-	
+
 	cfa := NewControlFlowAnalyzer(fn)
 	patterns, err := cfa.AnalyzeControlFlow()
-	
+
 	if err != nil {
 		t.Fatalf("AnalyzeControlFlow failed: %v", err)
 	}
-	
+
 	if len(patterns) != 1 {
 		t.Errorf("Expected 1 pattern, got %d", len(patterns))
 	}
-	
+
 	if len(patterns) > 0 && patterns[0].Type != "while" {
 		t.Errorf("Expected while pattern, got %s", patterns[0].Type)
 	}
@@ -166,14 +166,14 @@ func TestControlFlowAnalyzer_SwitchPattern(t *testing.T) {
 			"  ret i32 -1",
 		},
 	}
-	
+
 	cfa := NewControlFlowAnalyzer(fn)
 	patterns, err := cfa.AnalyzeControlFlow()
-	
+
 	if err != nil {
 		t.Fatalf("AnalyzeControlFlow failed: %v", err)
 	}
-	
+
 	// Debug: print blocks
 	blocks := cfa.GetBasicBlocks()
 	t.Logf("Found %d blocks", len(blocks))
@@ -187,16 +187,16 @@ func TestControlFlowAnalyzer_SwitchPattern(t *testing.T) {
 			}
 		}
 	}
-	
+
 	t.Logf("Found %d patterns", len(patterns))
 	for i, p := range patterns {
 		t.Logf("Pattern %d: type=%s, start=%s", i, p.Type, p.StartLabel)
 	}
-	
+
 	if len(patterns) != 1 {
 		t.Errorf("Expected 1 pattern, got %d", len(patterns))
 	}
-	
+
 	if len(patterns) > 0 {
 		if patterns[0].Type != "switch" {
 			t.Errorf("Expected switch pattern, got %s", patterns[0].Type)
@@ -222,20 +222,20 @@ func TestControlFlowAnalyzer_BasicBlocks(t *testing.T) {
 			"  ret i32 %x",
 		},
 	}
-	
+
 	cfa := NewControlFlowAnalyzer(fn)
 	cfa.buildBasicBlocks()
-	
+
 	blocks := cfa.GetBasicBlocks()
-	
+
 	if len(blocks) != 2 {
 		t.Errorf("Expected 2 basic blocks, got %d", len(blocks))
 	}
-	
+
 	if _, exists := blocks["entry"]; !exists {
 		t.Errorf("Entry block not found")
 	}
-	
+
 	if _, exists := blocks["next"]; !exists {
 		t.Errorf("Next block not found")
 	}

@@ -43,7 +43,7 @@ func (c *Compiler) CompileToLLVM(goSourcePath string) (string, error) {
 	// Run TinyGo to generate LLVM IR using -internal-printir
 	// We redirect the output to a file
 	cmd := exec.Command(c.TinyGoPath, "build", "-internal-printir", "-o", "/dev/null", goSourcePath)
-	
+
 	outFile, err := os.Create(llvmIRPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create output file: %w", err)
@@ -77,7 +77,7 @@ func (c *Compiler) CompileToLLVMFile(goSourcePath string) (string, error) {
 
 	// Run TinyGo to generate LLVM IR using -internal-printir
 	cmd := exec.Command(c.TinyGoPath, "build", "-internal-printir", "-o", "/dev/null", goSourcePath)
-	
+
 	outFile, err := os.Create(llvmIRPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create output file: %w", err)

@@ -55,7 +55,7 @@ func (e *Emitter) Emit(module *llvm.Module) (string, error) {
 	// Write forward declarations for user functions
 	analyzer := llvm.NewAnalyzer(module)
 	userFunctions := analyzer.GetUserFunctions()
-	
+
 	if len(userFunctions) > 0 {
 		sb.WriteString("// Forward declarations\n")
 		for _, fn := range userFunctions {
@@ -244,7 +244,7 @@ func (e *Emitter) convertAssignmentInstruction(instruction string) string {
 			cType := e.typeMapper.LLVMTypeToC(rhsParts[1])
 			operand1 := strings.TrimSuffix(e.typeMapper.SanitizeName(rhsParts[2]), ",")
 			operand2 := e.typeMapper.SanitizeName(rhsParts[3])
-			
+
 			var operator string
 			switch op {
 			case "add":
@@ -258,17 +258,17 @@ func (e *Emitter) convertAssignmentInstruction(instruction string) string {
 			case "srem", "urem":
 				operator = "%"
 			}
-			
+
 			return fmt.Sprintf("%s %s = %s %s %s;", cType, lhs, operand1, operator, operand2)
 		}
 	case "icmp":
 		// icmp sgt i32 %a, %b -> comparison
 		if len(rhsParts) >= 5 {
 			// icmp sgt i32 %a, %b
-			condition := rhsParts[1]  // sgt, slt, eq, ne, etc.
+			condition := rhsParts[1] // sgt, slt, eq, ne, etc.
 			operand1 := strings.TrimSuffix(e.typeMapper.SanitizeName(rhsParts[3]), ",")
 			operand2 := e.typeMapper.SanitizeName(rhsParts[4])
-			
+
 			var operator string
 			switch condition {
 			case "eq":
@@ -286,7 +286,7 @@ func (e *Emitter) convertAssignmentInstruction(instruction string) string {
 			default:
 				operator = "?" + condition + "?"
 			}
-			
+
 			return fmt.Sprintf("bool %s = %s %s %s;", lhs, operand1, operator, operand2)
 		}
 	}
@@ -356,11 +356,11 @@ func (e *Emitter) convertCallInstruction(instruction string) string {
 	// Parse call instruction
 	// Example: call void @puts(i8* %1)
 	// Example: %0 = call i32 @add(i32 5, i32 3)
-	
+
 	hasAssignment := strings.Contains(instruction, "=")
 	var lhs string
 	var callPart string
-	
+
 	if hasAssignment {
 		parts := strings.SplitN(instruction, "=", 2)
 		lhs = e.typeMapper.SanitizeName(strings.TrimSpace(parts[0]))
@@ -368,37 +368,37 @@ func (e *Emitter) convertCallInstruction(instruction string) string {
 	} else {
 		callPart = instruction
 	}
-	
+
 	// Extract function name
 	if !strings.Contains(callPart, "@") {
 		return fmt.Sprintf("/* %s */", instruction)
 	}
-	
+
 	atIndex := strings.Index(callPart, "@")
 	afterAt := callPart[atIndex+1:]
 	parenIndex := strings.Index(afterAt, "(")
-	
+
 	if parenIndex == -1 {
 		return fmt.Sprintf("/* %s */", instruction)
 	}
-	
+
 	funcName := e.typeMapper.SanitizeName(afterAt[:parenIndex])
-	
+
 	// Extract arguments
 	argsStart := atIndex + 1 + parenIndex + 1
 	argsEnd := strings.LastIndex(callPart, ")")
-	
+
 	if argsEnd == -1 {
 		argsEnd = len(callPart)
 	}
-	
+
 	argsStr := ""
 	if argsStart < argsEnd {
 		argsPart := callPart[argsStart:argsEnd]
 		args := e.parseCallArguments(argsPart)
 		argsStr = strings.Join(args, ", ")
 	}
-	
+
 	// Generate C code
 	if hasAssignment {
 		// Extract return type
@@ -411,7 +411,7 @@ func (e *Emitter) convertCallInstruction(instruction string) string {
 		}
 		return fmt.Sprintf("%s %s = %s(%s);", returnType, lhs, funcName, argsStr)
 	}
-	
+
 	return fmt.Sprintf("%s(%s);", funcName, argsStr)
 }
 
@@ -420,16 +420,16 @@ func (e *Emitter) parseCallArguments(argsStr string) []string {
 	if strings.TrimSpace(argsStr) == "" {
 		return []string{}
 	}
-	
+
 	args := []string{}
 	parts := strings.Split(argsStr, ",")
-	
+
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-		
+
 		// Parse "type value" format
 		tokens := strings.Fields(part)
 		if len(tokens) >= 2 {
@@ -451,7 +451,7 @@ func (e *Emitter) parseCallArguments(argsStr string) []string {
 			}
 		}
 	}
-	
+
 	return args
 }
 
@@ -477,7 +477,7 @@ func (e *Emitter) convertBranchInstruction(instruction string) string {
 // generateGlobalVariable generates a C global variable declaration
 func (e *Emitter) generateGlobalVariable(global *llvm.Global) string {
 	name := e.typeMapper.SanitizeName(global.Name)
-	
+
 	// Handle string constants
 	if strings.Contains(global.Value, "constant") && strings.Contains(global.Value, "c\"") {
 		// Extract string value
@@ -492,7 +492,7 @@ func (e *Emitter) generateGlobalVariable(global *llvm.Global) string {
 			}
 		}
 	}
-	
+
 	// Default handling for other globals
 	return fmt.Sprintf("/* Global: %s */", name)
 }
@@ -515,10 +515,10 @@ func (e *Emitter) generateFunctionWithControlFlow(fn *llvm.Function) string {
 	if err != nil || len(patterns) == 0 {
 		return "" // Fallback to basic generation
 	}
-	
+
 	// Get basic blocks
 	blocks := cfa.GetBasicBlocks()
-	
+
 	// Track which blocks are part of structured control flow
 	structuredBlocks := make(map[string]bool)
 	for _, pattern := range patterns {
@@ -526,15 +526,15 @@ func (e *Emitter) generateFunctionWithControlFlow(fn *llvm.Function) string {
 			structuredBlocks[blockLabel] = true
 		}
 	}
-	
+
 	var sb strings.Builder
-	
+
 	// Generate code with structured control flow
 	processedBlocks := make(map[string]bool)
-	
+
 	// Start with entry block
 	e.generateBlockWithPatterns("entry", blocks, patterns, &sb, processedBlocks, 1)
-	
+
 	// Generate any remaining blocks that weren't covered
 	for label, block := range blocks {
 		if !processedBlocks[label] && label != "entry" {
@@ -542,7 +542,7 @@ func (e *Emitter) generateFunctionWithControlFlow(fn *llvm.Function) string {
 			processedBlocks[label] = true
 		}
 	}
-	
+
 	return sb.String()
 }
 
@@ -558,17 +558,17 @@ func (e *Emitter) generateBlockWithPatterns(
 	if processed[label] {
 		return
 	}
-	
+
 	block, exists := blocks[label]
 	if !exists {
 		return
 	}
-	
+
 	processed[label] = true
-	
+
 	// Check if this block starts a pattern
 	pattern := e.findPatternStartingAt(label, patterns)
-	
+
 	if pattern != nil {
 		switch pattern.Type {
 		case "if-else":
@@ -600,7 +600,7 @@ func (e *Emitter) generateBasicBlockAndContinue(
 	indent int,
 ) {
 	indentStr := strings.Repeat("    ", indent)
-	
+
 	// Generate instructions before the terminator
 	for i, inst := range block.Instructions {
 		// Skip the last instruction if it's the terminator
@@ -657,13 +657,13 @@ func (e *Emitter) generateIfElse(
 	condBlock := blocks[pattern.CondBlock]
 	thenBlock := blocks[pattern.ThenBlock]
 	elseBlock := blocks[pattern.ElseBlock]
-	
+
 	if condBlock == nil || thenBlock == nil || elseBlock == nil {
 		return
 	}
-	
+
 	indentStr := strings.Repeat("    ", indent)
-	
+
 	// Generate instructions before the branch (excluding terminator)
 	for i, inst := range condBlock.Instructions {
 		// Skip the last instruction if it's the branch terminator
@@ -675,12 +675,12 @@ func (e *Emitter) generateIfElse(
 			sb.WriteString(indentStr + cLine + "\n")
 		}
 	}
-	
+
 	// Generate if statement
 	if condBlock.Terminator != nil && condBlock.Terminator.Condition != "" {
 		condition := e.typeMapper.SanitizeName(condBlock.Terminator.Condition)
 		sb.WriteString(fmt.Sprintf("%sif (%s) {\n", indentStr, condition))
-		
+
 		// Generate then block (all instructions including terminator)
 		for _, inst := range thenBlock.Instructions {
 			cLine := e.convertInstructionToC(inst)
@@ -688,9 +688,9 @@ func (e *Emitter) generateIfElse(
 				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
 			}
 		}
-		
+
 		sb.WriteString(fmt.Sprintf("%s} else {\n", indentStr))
-		
+
 		// Generate else block (all instructions including terminator)
 		for _, inst := range elseBlock.Instructions {
 			cLine := e.convertInstructionToC(inst)
@@ -698,13 +698,13 @@ func (e *Emitter) generateIfElse(
 				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
 			}
 		}
-		
+
 		sb.WriteString(fmt.Sprintf("%s}\n", indentStr))
-		
+
 		// Mark blocks as processed
 		processed[pattern.ThenBlock] = true
 		processed[pattern.ElseBlock] = true
-		
+
 		// Continue with merge block if it exists
 		if pattern.EndLabel != "" && !processed[pattern.EndLabel] {
 			e.generateBlockWithPatterns(pattern.EndLabel, blocks, patterns, sb, processed, indent)
@@ -725,13 +725,13 @@ func (e *Emitter) generateIfThen(
 ) {
 	condBlock := blocks[pattern.CondBlock]
 	thenBlock := blocks[pattern.ThenBlock]
-	
+
 	if condBlock == nil || thenBlock == nil {
 		return
 	}
-	
+
 	indentStr := strings.Repeat("    ", indent)
-	
+
 	// Generate instructions before the branch (excluding terminator)
 	for i, inst := range condBlock.Instructions {
 		// Skip the last instruction if it's the branch terminator
@@ -743,12 +743,12 @@ func (e *Emitter) generateIfThen(
 			sb.WriteString(indentStr + cLine + "\n")
 		}
 	}
-	
+
 	// Generate if statement
 	if condBlock.Terminator != nil && condBlock.Terminator.Condition != "" {
 		condition := e.typeMapper.SanitizeName(condBlock.Terminator.Condition)
 		sb.WriteString(fmt.Sprintf("%sif (%s) {\n", indentStr, condition))
-		
+
 		// Generate then block (all instructions except final unconditional branch to merge)
 		for i, inst := range thenBlock.Instructions {
 			// Skip unconditional branch to merge point
@@ -760,12 +760,12 @@ func (e *Emitter) generateIfThen(
 				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
 			}
 		}
-		
+
 		sb.WriteString(fmt.Sprintf("%s}\n", indentStr))
-		
+
 		// Mark blocks as processed
 		processed[pattern.ThenBlock] = true
-		
+
 		// Continue with merge block
 		if pattern.EndLabel != "" && !processed[pattern.EndLabel] {
 			e.generateBlockWithPatterns(pattern.EndLabel, blocks, patterns, sb, processed, indent)
@@ -784,13 +784,13 @@ func (e *Emitter) generateWhile(
 ) {
 	condBlock := blocks[pattern.CondBlock]
 	bodyBlock := blocks[pattern.BodyBlock]
-	
+
 	if condBlock == nil || bodyBlock == nil {
 		return
 	}
-	
+
 	indentStr := strings.Repeat("    ", indent)
-	
+
 	// Generate instructions in cond block before the branch (to compute condition)
 	for i, inst := range condBlock.Instructions {
 		// Skip the conditional branch at the end
@@ -802,12 +802,12 @@ func (e *Emitter) generateWhile(
 			sb.WriteString(indentStr + cLine + "\n")
 		}
 	}
-	
+
 	// Generate while loop
 	if condBlock.Terminator != nil && condBlock.Terminator.Condition != "" {
 		condition := e.typeMapper.SanitizeName(condBlock.Terminator.Condition)
 		sb.WriteString(fmt.Sprintf("%swhile (%s) {\n", indentStr, condition))
-		
+
 		// Generate loop body (excluding the back-edge branch)
 		for i, inst := range bodyBlock.Instructions {
 			// Skip unconditional branch back to condition
@@ -819,7 +819,7 @@ func (e *Emitter) generateWhile(
 				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
 			}
 		}
-		
+
 		// Re-evaluate condition at end of loop (for variables modified in body)
 		for i, inst := range condBlock.Instructions {
 			// Skip the conditional branch at the end
@@ -831,13 +831,13 @@ func (e *Emitter) generateWhile(
 				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
 			}
 		}
-		
+
 		sb.WriteString(fmt.Sprintf("%s}\n", indentStr))
-		
+
 		// Mark blocks as processed
 		processed[pattern.CondBlock] = true
 		processed[pattern.BodyBlock] = true
-		
+
 		// Continue with code after loop
 		if pattern.EndLabel != "" && !processed[pattern.EndLabel] {
 			e.generateBlockWithPatterns(pattern.EndLabel, blocks, patterns, sb, processed, indent)
@@ -853,12 +853,12 @@ func (e *Emitter) generateBasicBlock(
 	indent int,
 ) {
 	indentStr := strings.Repeat("    ", indent)
-	
+
 	// Generate label
 	if label != "entry" {
 		sb.WriteString(fmt.Sprintf("%s%s:\n", indentStr, label))
 	}
-	
+
 	// Generate instructions
 	for _, inst := range block.Instructions {
 		cLine := e.convertInstructionToC(inst)
@@ -866,7 +866,7 @@ func (e *Emitter) generateBasicBlock(
 			sb.WriteString(indentStr + cLine + "\n")
 		}
 	}
-	
+
 	// Generate terminator
 	if block.Terminator != nil {
 		var termInst string
@@ -881,7 +881,7 @@ func (e *Emitter) generateBasicBlock(
 				block.Terminator.TrueLabel,
 				block.Terminator.FalseLabel)
 		}
-		
+
 		if termInst != "" {
 			cLine := e.convertInstructionToC(termInst)
 			if cLine != "" {
@@ -901,29 +901,29 @@ func (e *Emitter) generateSwitch(
 	indent int,
 ) {
 	indentStr := strings.Repeat("    ", indent)
-	
+
 	// Mark the switch block itself as processed
 	processed[pattern.StartLabel] = true
-	
+
 	// Get the switch value and sanitize it
 	switchValue := e.typeMapper.SanitizeName(pattern.SwitchValue)
-	
+
 	// Generate switch statement
 	sb.WriteString(fmt.Sprintf("%sswitch (%s) {\n", indentStr, switchValue))
-	
+
 	// Generate case statements
 	for _, switchCase := range pattern.SwitchCases {
 		caseBlock := blocks[switchCase.Label]
 		if caseBlock == nil {
 			continue
 		}
-		
+
 		// Generate case label
 		sb.WriteString(fmt.Sprintf("%scase %s:\n", indentStr, switchCase.Value))
-		
+
 		// Mark as processed
 		processed[switchCase.Label] = true
-		
+
 		// Generate case body
 		for _, inst := range caseBlock.Instructions {
 			// Check if this is a return statement - if so, don't add break
@@ -935,13 +935,13 @@ func (e *Emitter) generateSwitch(
 				// No break needed after return
 				continue
 			}
-			
+
 			cLine := e.convertInstructionToC(inst)
 			if cLine != "" {
 				sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
 			}
 		}
-		
+
 		// Check if we need a break statement
 		// Only add break if the case doesn't end with return or goto
 		if caseBlock.Terminator != nil {
@@ -957,16 +957,16 @@ func (e *Emitter) generateSwitch(
 			sb.WriteString(strings.Repeat("    ", indent+1) + "break;\n")
 		}
 	}
-	
+
 	// Generate default case
 	if pattern.DefaultLabel != "" {
 		defaultBlock := blocks[pattern.DefaultLabel]
 		if defaultBlock != nil {
 			sb.WriteString(fmt.Sprintf("%sdefault:\n", indentStr))
-			
+
 			// Mark as processed
 			processed[pattern.DefaultLabel] = true
-			
+
 			// Generate default body
 			for _, inst := range defaultBlock.Instructions {
 				if strings.HasPrefix(inst, "ret") {
@@ -976,13 +976,13 @@ func (e *Emitter) generateSwitch(
 					}
 					continue
 				}
-				
+
 				cLine := e.convertInstructionToC(inst)
 				if cLine != "" {
 					sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
 				}
 			}
-			
+
 			// Add break for default if needed
 			if defaultBlock.Terminator != nil {
 				if defaultBlock.Terminator.Type == "br_uncon" {
@@ -993,7 +993,7 @@ func (e *Emitter) generateSwitch(
 			}
 		}
 	}
-	
+
 	// Close switch statement
 	sb.WriteString(fmt.Sprintf("%s}\n", indentStr))
 }
