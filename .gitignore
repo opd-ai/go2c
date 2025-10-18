@@ -11,6 +11,7 @@
 # Compiled binaries
 go2c
 llvm2c
+bin/
 
 # Test binary, built with `go test -c`
 *.test
