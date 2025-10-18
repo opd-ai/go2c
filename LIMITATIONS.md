@@ -177,11 +177,61 @@ void slice_append(slice_int* s, int value) {
 
 ### 11. String Operations
 
-**Issue**: Go strings are immutable and UTF-8, C strings are mutable byte arrays.
+**Status**: **ENHANCED** - String runtime library now provided automatically
 
-**Impact**: String manipulation may differ.
+**Support**: The transpiler now automatically includes a comprehensive string runtime library when string operations are detected. This library provides:
 
-**Workaround**: Be careful with string modifications, consider using a string library.
+- **`go_string_t` type**: Preserves Go string semantics with data pointer and explicit length
+- **String comparison**: `go_string_compare()`, `go_string_equals()`
+- **String concatenation**: `go_string_concat()`
+- **Substring extraction**: `go_string_substring()`
+- **Conversion utilities**: `go_string_to_cstr()`, `go_string_new()`, `go_string_from_bytes()`
+- **Safe memory management**: `go_string_free()` for allocated strings
+- **Character access**: `go_string_at()`
+- **Substring search**: `go_string_contains()`
+
+**Generated Code Example**:
+```c
+// String constant from Go (automatically generated)
+static const char main_string_data[] = "Hello, World!";
+static const go_string_t main_string = {
+    .data = main_string_data,
+    .len = 13
+};
+
+// String operations available in generated code
+go_string_t greeting = go_string_new("Hello");
+go_string_t name = go_string_new("World");
+go_string_t message = go_string_concat(greeting, name);
+
+if (go_string_equals(message, main_string)) {
+    printf("Strings are equal\n");
+}
+
+// Cleanup dynamically allocated strings
+go_string_free((char*)message.data);
+```
+
+**How It Works**:
+1. The transpiler detects string usage in LLVM IR (string constants or runtime calls)
+2. When strings are detected, the runtime library is automatically included
+3. String constants are converted to `go_string_t` structures with data and length
+4. All string operations are available without any external dependencies
+5. The library uses only standard C functions for maximum portability
+
+**Advantages Over C Strings**:
+- **Binary safe**: Handles strings with embedded null bytes
+- **Length tracking**: Explicit length prevents buffer overruns
+- **UTF-8 compatible**: Preserves Go's UTF-8 string semantics
+- **Immutable semantics**: String operations create new strings (like Go)
+
+**Remaining Limitations**:
+- Manual memory management required for concatenated/substring results
+- UTF-8 rune iteration not yet implemented (byte-level operations only)
+- String builder pattern requires manual implementation
+- No automatic garbage collection (use `go_string_free()` when done)
+
+**Impact**: Greatly improved! String handling is now much more robust and Go-like. The library is automatically included only when needed, keeping generated code clean and minimal.
 
 ### 12. Numeric Type Sizes
 

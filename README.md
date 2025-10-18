@@ -166,12 +166,22 @@ go2c/
 ✓ Function parameters and return values  
 ✓ **Multiple return values** via aggregate types - **NEW!**  
 ✓ Global variables and string constants  
+✓ **String operations** with runtime library - **NEW!**  
 ✓ **Control flow patterns** (if/else, while loops, for loops, switch statements)  
 ✓ Structured C code generation (not just goto/labels)  
 
 ### Recent Improvements
 
-**Multiple Return Values Support** (Latest):
+**String Operations Support** (Latest):
+- Automatic string runtime library inclusion when strings detected
+- Go-compatible `go_string_t` type with data pointer and length
+- Complete string operations (compare, concat, substring, contains)
+- Conversion between Go strings and C strings
+- Binary-safe string handling (supports embedded null bytes)
+- Zero external dependencies (pure C implementation)
+- See [STRING_OPERATIONS_SOLUTION.md](STRING_OPERATIONS_SOLUTION.md) for details
+
+**Multiple Return Values Support**:
 - Functions returning multiple values now automatically converted to C structs
 - Supports Go's common pattern of returning `(value, error)`
 - `insertvalue` and `extractvalue` LLVM instructions properly handled
