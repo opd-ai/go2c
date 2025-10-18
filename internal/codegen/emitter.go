@@ -11,10 +11,11 @@ import (
 
 // Emitter generates C code from LLVM IR
 type Emitter struct {
-	typeMapper         *TypeMapper
-	includes           []string
-	defines            []string
-	needsStringSupport bool // Flag to track if string library is needed
+	typeMapper          *TypeMapper
+	includes            []string
+	defines             []string
+	needsStringSupport  bool // Flag to track if string library is needed
+	needsRuntimeSupport bool // Flag to track if runtime library is needed
 }
 
 // NewEmitter creates a new C code emitter
@@ -42,12 +43,21 @@ func (e *Emitter) Emit(module *llvm.Module) (string, error) {
 
 	// Detect if string support is needed
 	e.detectStringUsage(module)
+	
+	// Detect if runtime support is needed
+	e.detectRuntimeUsage(module)
 
 	// Write includes
 	for _, include := range e.includes {
 		sb.WriteString(fmt.Sprintf("#include <%s>\n", include))
 	}
 	sb.WriteString("\n")
+
+	// Include runtime library if needed
+	if e.needsRuntimeSupport {
+		sb.WriteString(GetRuntimeLibrary())
+		sb.WriteString("\n")
+	}
 
 	// Include string runtime library if needed
 	if e.needsStringSupport {
@@ -1364,6 +1374,55 @@ func (e *Emitter) detectStringUsage(module *llvm.Module) {
 				strings.Contains(line, "runtime.printstring") {
 				e.needsStringSupport = true
 				return
+			}
+		}
+	}
+}
+
+// detectRuntimeUsage detects if the module uses runtime functions and sets the needsRuntimeSupport flag
+func (e *Emitter) detectRuntimeUsage(module *llvm.Module) {
+	// List of runtime function patterns to detect
+	runtimePatterns := []string{
+		"runtime.printint",
+		"runtime_printint",
+		"runtime.printuint",
+		"runtime_printuint",
+		"runtime.printfloat",
+		"runtime_printfloat",
+		"runtime.printbool",
+		"runtime_printbool",
+		"runtime.printpointer",
+		"runtime_printpointer",
+		"runtime.printnl",
+		"runtime_printnl",
+		"runtime.alloc",
+		"runtime_alloc",
+		"runtime.free",
+		"runtime_free",
+		"runtime.slicecopy",
+		"runtime_slicecopy",
+	}
+
+	// Check function calls in all functions
+	for _, fn := range module.Functions {
+		for _, line := range fn.Body {
+			for _, pattern := range runtimePatterns {
+				if strings.Contains(line, pattern) {
+					e.needsRuntimeSupport = true
+					return
+				}
+			}
+		}
+	}
+
+	// Also check function declarations
+	for _, fn := range module.Functions {
+		if fn.IsExternal {
+			for _, pattern := range runtimePatterns {
+				if strings.Contains(fn.Name, pattern) {
+					e.needsRuntimeSupport = true
+					return
+				}
 			}
 		}
 	}
