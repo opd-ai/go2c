@@ -446,16 +446,62 @@ Comparison results are converted to C `bool` type.
 
 ### Missing Runtime Functions
 
-**Issue**: Generated C code calls runtime functions like:
-- `runtime_printstring()`
-- `runtime_printint()`
-- Memory allocation functions
-- Type assertion functions
+**Status**: **RESOLVED** - Runtime library now provided automatically
 
-**Workaround**: Implement these functions in C:
+**Support**: The transpiler now automatically includes a comprehensive runtime library when runtime functions are detected. This library provides implementations of common TinyGo/Go runtime functions.
 
+**Supported Runtime Functions**:
+- **`runtime_printint`**: Print integers to stdout
+- **`runtime_printstring`**: Print strings with explicit length (Go string semantics)
+- **`runtime_printuint32/64`**: Print unsigned integers
+- **`runtime_printint64`**: Print 64-bit integers
+- **`runtime_printfloat32/64`**: Print floating-point numbers
+- **`runtime_printbool`**: Print boolean values
+- **`runtime_printpointer`**: Print pointer addresses
+- **`runtime_printnl`**: Print newline
+- **`runtime_printspace`**: Print space
+- **`runtime_alloc`**: Memory allocation wrapper
+- **`runtime_free`**: Memory deallocation
+- **`runtime_memcpy`**: Memory copy wrapper
+- **`runtime_memset`**: Memory set wrapper
+- **`runtime_slicecopy`**: Slice data copy (simplified)
+- **`runtime_strcmp`**: String comparison
+- **`runtime_strlen`**: String length
+
+**How It Works**:
+1. The transpiler detects runtime function calls in LLVM IR (e.g., `runtime.printint`)
+2. When runtime functions are detected, the runtime library is automatically included
+3. All runtime functions are implemented as static inline C functions
+4. The library uses only standard C functions for maximum portability
+5. No external dependencies or manual implementation required
+
+**Generated Code Example**:
 ```c
-// Example runtime function implementations
+// Runtime library automatically included
+static inline void runtime_printint(int32_t value) {
+    printf("%d\n", value);
+}
+
+// Your generated function can now call it
+void main(void) {
+    int result = 42;
+    runtime_printint(result);  // Works automatically!
+}
+```
+
+**Advantages**:
+- **Zero Configuration**: No manual implementation needed
+- **Automatic Detection**: Library included only when needed
+- **Comprehensive**: Covers all common runtime functions
+- **Portable**: Uses standard C library functions
+- **Inline Functions**: No runtime overhead
+- **Type-Safe**: Proper C type signatures
+
+**Impact**: Greatly improved! Generated C code now compiles and runs without requiring manual implementation of runtime functions. The library is automatically included only when needed, keeping generated code clean and minimal.
+
+**Previous Workaround** (no longer needed):
+```c
+// OLD WAY: Users had to manually implement these
 void runtime_printstring(const char* str, int len) {
     fwrite(str, 1, len, stdout);
 }
@@ -463,6 +509,7 @@ void runtime_printstring(const char* str, int len) {
 void runtime_printint(int value) {
     printf("%d\n", value);
 }
+// NOW: All handled automatically by the transpiler!
 ```
 
 ## Best Practices for Successful Transpilation
