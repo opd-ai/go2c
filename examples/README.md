@@ -14,6 +14,27 @@ Simple hello world program demonstrating basic function calls and string constan
 
 Demonstrates basic arithmetic operations (addition) and function calls.
 
+### 3. String Operations
+**File**: `string_operations.c`
+
+**NEW!** Comprehensive example demonstrating the Go string runtime library:
+- Creating strings from C strings
+- String concatenation
+- String comparison and equality
+- Substring extraction
+- Substring search (contains)
+- Character access
+- Binary-safe strings (with embedded null bytes)
+- Conversion between Go strings and C strings
+
+**Compile and run**:
+```bash
+gcc examples/string_operations.c -o string_ops_demo
+./string_ops_demo
+```
+
+This example shows all the string operations that are automatically available when the go2c transpiler detects string usage in Go code.
+
 ## Advanced Examples
 
 ### 3. Fibonacci (fibonacci.go)
