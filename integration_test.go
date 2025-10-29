@@ -92,6 +92,16 @@ func TestLLVM2CIntegration(t *testing.T) {
 				"int val2 = var_0.field1;",
 			},
 		},
+		{
+			name:      "do-while loop",
+			inputFile: "testdata/input/dowhile.ll",
+			checkStrings: []string{
+				"int sum_do_while(int n)",
+				"do {",
+				"} while (cmp);",
+				"void print_countdown(int n)",
+			},
+		},
 	}
 
 	for _, tt := range tests {

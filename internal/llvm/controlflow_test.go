@@ -329,3 +329,78 @@ func TestControlFlowAnalyzer_ForPattern(t *testing.T) {
 		t.Errorf("Expected end label 'for.end', got '%s'", pattern.EndLabel)
 	}
 }
+
+func TestControlFlowAnalyzer_DoWhilePattern(t *testing.T) {
+	// Test function with do-while pattern
+	fn := &Function{
+		Name:       "sum_do_while",
+		ReturnType: "i32",
+		Parameters: []Parameter{
+			{Type: "i32", Name: "%n"},
+		},
+		Body: []string{
+			"entry:",
+			"  %sum = alloca i32",
+			"  %i = alloca i32",
+			"  store i32 0, i32* %sum",
+			"  store i32 0, i32* %i",
+			"  br label %do.body",
+			"do.body:",
+			"  %sum.val = load i32, i32* %sum",
+			"  %i.val = load i32, i32* %i",
+			"  %add = add i32 %sum.val, %i.val",
+			"  store i32 %add, i32* %sum",
+			"  %inc = add i32 %i.val, 1",
+			"  store i32 %inc, i32* %i",
+			"  br label %do.cond",
+			"do.cond:",
+			"  %i.val2 = load i32, i32* %i",
+			"  %cmp = icmp slt i32 %i.val2, %n",
+			"  br i1 %cmp, label %do.body, label %do.end",
+			"do.end:",
+			"  %result = load i32, i32* %sum",
+			"  ret i32 %result",
+		},
+	}
+	
+	cfa := NewControlFlowAnalyzer(fn)
+	patterns, err := cfa.AnalyzeControlFlow()
+	
+	if err != nil {
+		t.Fatalf("AnalyzeControlFlow failed: %v", err)
+	}
+	
+	// Debug: print blocks
+	blocks := cfa.GetBasicBlocks()
+	t.Logf("Found %d blocks", len(blocks))
+	for name, block := range blocks {
+		t.Logf("Block %s: %d instructions, terminator: %v", name, len(block.Instructions), block.Terminator)
+	}
+	
+	t.Logf("Found %d patterns", len(patterns))
+	for i, p := range patterns {
+		t.Logf("Pattern %d: type=%s, start=%s, body=%s, cond=%s, end=%s", 
+			i, p.Type, p.StartLabel, p.BodyBlock, p.CondBlock, p.EndLabel)
+	}
+	
+	if len(patterns) != 1 {
+		t.Fatalf("Expected 1 pattern, got %d", len(patterns))
+	}
+	
+	pattern := patterns[0]
+	if pattern.Type != "do-while" {
+		t.Errorf("Expected 'do-while' pattern, got '%s'", pattern.Type)
+	}
+	
+	if pattern.BodyBlock != "do.body" {
+		t.Errorf("Expected body block 'do.body', got '%s'", pattern.BodyBlock)
+	}
+	
+	if pattern.CondBlock != "do.cond" {
+		t.Errorf("Expected cond block 'do.cond', got '%s'", pattern.CondBlock)
+	}
+	
+	if pattern.EndLabel != "do.end" {
+		t.Errorf("Expected end label 'do.end', got '%s'", pattern.EndLabel)
+	}
+}
