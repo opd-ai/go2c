@@ -441,3 +441,9 @@ This project is under active development. While the core functionality works, so
 **Current Version**: 0.1.0  
 **Stability**: Alpha  
 **Production Ready**: Not yet - testing and validation ongoing
+
+Donate Monero(The only good cryptocurrency) to support development
+==================================================================
+
+ - `monero:43H3Uqnc9rfEsJjUXZYmam45MbtWmREFSANAWY5hijY4aht8cqYaT2BCNhfBhua5XwNdx9Tb6BEdt4tjUHJDwNW5H7mTiwe`
+
