@@ -32,10 +32,10 @@ type Terminator struct {
 
 // ControlFlowPattern represents a detected control flow pattern
 type ControlFlowPattern struct {
-	Type         string       // "if-else", "if-then", "while", "for", "switch"
+	Type         string       // "if-else", "if-then", "while", "for", "do-while", "switch"
 	StartLabel   string       // The starting block label
 	EndLabel     string       // The ending/merge block label (if any)
-	CondBlock    string       // For if/while/for: condition block
+	CondBlock    string       // For if/while/for/do-while: condition block
 	ThenBlock    string       // For if: then block
 	ElseBlock    string       // For if: else block
 	BodyBlock    string       // For loops: body block
@@ -280,6 +280,21 @@ func (cfa *ControlFlowAnalyzer) detectPatterns() []*ControlFlowPattern {
 		}
 	}
 	
+	// Detect do-while loop patterns (must be checked before while loops)
+	for label, block := range cfa.blocks {
+		if usedBlocks[label] {
+			continue
+		}
+		
+		pattern := cfa.detectDoWhilePattern(label, block)
+		if pattern != nil {
+			patterns = append(patterns, pattern)
+			for _, b := range pattern.Blocks {
+				usedBlocks[b] = true
+			}
+		}
+	}
+	
 	// Detect while loop patterns
 	for label, block := range cfa.blocks {
 		if usedBlocks[label] {
@@ -510,6 +525,48 @@ func (cfa *ControlFlowAnalyzer) detectSwitchPattern(label string, block *BasicBl
 		DefaultLabel: block.Terminator.DefaultLabel,
 		Blocks:       blocks,
 	}
+}
+
+// detectDoWhilePattern detects do-while loop patterns
+// Do-while pattern: body executes first, then condition check with back-edge
+// entry -> do.body -> do.cond --(true)--> do.body
+//                              --(false)--> do.end
+func (cfa *ControlFlowAnalyzer) detectDoWhilePattern(label string, block *BasicBlock) *ControlFlowPattern {
+	// Check if this looks like a do.body block (entry point of do-while)
+	if !strings.Contains(label, "do.body") {
+		return nil
+	}
+	
+	// do.body should jump unconditionally to do.cond
+	if block.Terminator == nil || block.Terminator.Type != "br_uncon" {
+		return nil
+	}
+	
+	condLabel := block.Terminator.UnconLabel
+	condBlock, condExists := cfa.blocks[condLabel]
+	
+	// do.cond must exist and have conditional branch
+	if !condExists || condBlock.Terminator == nil || condBlock.Terminator.Type != "br_cond" {
+		return nil
+	}
+	
+	// In do-while, the true branch goes back to the body, false goes to end
+	trueLabel := condBlock.Terminator.TrueLabel
+	endLabel := condBlock.Terminator.FalseLabel
+	
+	// Verify the true branch points back to body (creating the loop)
+	if trueLabel == label {
+		return &ControlFlowPattern{
+			Type:       "do-while",
+			StartLabel: label,
+			EndLabel:   endLabel,
+			CondBlock:  condLabel,
+			BodyBlock:  label,
+			Blocks:     []string{label, condLabel, endLabel},
+		}
+	}
+	
+	return nil
 }
 
 // GetBasicBlocks returns the basic blocks

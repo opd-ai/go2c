@@ -688,6 +688,8 @@ func (e *Emitter) generateBlockWithPatterns(
 			e.generateIfThen(pattern, blocks, patterns, sb, processed, indent)
 		case "while":
 			e.generateWhile(pattern, blocks, patterns, sb, processed, indent)
+		case "do-while":
+			e.generateDoWhile(pattern, blocks, patterns, sb, processed, indent)
 		case "for":
 			e.generateFor(pattern, blocks, patterns, sb, processed, indent)
 		case "switch":
@@ -950,6 +952,67 @@ func (e *Emitter) generateWhile(
 		// Mark blocks as processed
 		processed[pattern.CondBlock] = true
 		processed[pattern.BodyBlock] = true
+		
+		// Continue with code after loop
+		if pattern.EndLabel != "" && !processed[pattern.EndLabel] {
+			e.generateBlockWithPatterns(pattern.EndLabel, blocks, patterns, sb, processed, indent)
+		}
+	}
+}
+
+// generateDoWhile generates a do-while loop
+func (e *Emitter) generateDoWhile(
+	pattern *llvm.ControlFlowPattern,
+	blocks map[string]*llvm.BasicBlock,
+	patterns []*llvm.ControlFlowPattern,
+	sb *strings.Builder,
+	processed map[string]bool,
+	indent int,
+) {
+	bodyBlock := blocks[pattern.BodyBlock]
+	condBlock := blocks[pattern.CondBlock]
+	
+	if bodyBlock == nil || condBlock == nil {
+		return
+	}
+	
+	indentStr := strings.Repeat("    ", indent)
+	
+	// Generate do-while loop
+	sb.WriteString(fmt.Sprintf("%sdo {\n", indentStr))
+	
+	// Generate loop body (excluding the unconditional branch to condition)
+	for i, inst := range bodyBlock.Instructions {
+		// Skip unconditional branch to condition at the end
+		if i == len(bodyBlock.Instructions)-1 && strings.HasPrefix(inst, "br label") {
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+		}
+	}
+	
+	// Generate instructions in cond block before the branch (to compute condition)
+	for i, inst := range condBlock.Instructions {
+		// Skip the conditional branch at the end
+		if i == len(condBlock.Instructions)-1 && strings.HasPrefix(inst, "br i1") {
+			break
+		}
+		cLine := e.convertInstructionToC(inst)
+		if cLine != "" {
+			sb.WriteString(strings.Repeat("    ", indent+1) + cLine + "\n")
+		}
+	}
+	
+	// Generate while condition
+	if condBlock.Terminator != nil && condBlock.Terminator.Condition != "" {
+		condition := e.typeMapper.SanitizeName(condBlock.Terminator.Condition)
+		sb.WriteString(fmt.Sprintf("%s} while (%s);\n", indentStr, condition))
+		
+		// Mark blocks as processed
+		processed[pattern.BodyBlock] = true
+		processed[pattern.CondBlock] = true
 		
 		// Continue with code after loop
 		if pattern.EndLabel != "" && !processed[pattern.EndLabel] {
